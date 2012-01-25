@@ -39,21 +39,21 @@
 #define analogInputToDigitalPin(p)  ((p < 6) ? (p) + 22 : -1)
 #define digitalPinHasPWM(p)         (((p) >= 2 && (p) <= 6) || ((p) >= 9 && (p)<= 11) || ((p) >= 14 && (p)<= 19))
 
-const static uint8_t SS    = 6;
-const static uint8_t MOSI  = 11;
-const static uint8_t MISO  = 12;
-const static uint8_t SCK   = 13;
+static const uint8_t SS    = 6;
+static const uint8_t MOSI  = 11;
+static const uint8_t MISO  = 12;
+static const uint8_t SCK   = 13;
 
-const static uint8_t SDA = 2;
-const static uint8_t SCL = 3;
-const static uint8_t LED_BUILTIN = 13;
+static const uint8_t SDA = 2;
+static const uint8_t SCL = 3;
+static const uint8_t LED_BUILTIN = 13;
 
-const static uint8_t A0 = 22;
-const static uint8_t A1 = 23;
-const static uint8_t A2 = 24;
-const static uint8_t A3 = 25;
-const static uint8_t A4 = 26;
-const static uint8_t A5 = 27;
+static const uint8_t A0 = 22;
+static const uint8_t A1 = 23;
+static const uint8_t A2 = 24;
+static const uint8_t A3 = 25;
+static const uint8_t A4 = 26;
+static const uint8_t A5 = 27;
 
 #define Wire xmWireC
 #define Wire1 xmWireE
@@ -68,31 +68,13 @@ const static uint8_t A5 = 27;
 // these arrays map port names (e.g. port B) to the
 // appropriate addresses for various functions (e.g. reading
 // and writing)
-const uint16_t PROGMEM port_to_mode_PGM[] = {
-	NOT_A_PORT,
-	(uint16_t) &PORTA_DIR,
-	(uint16_t) &PORTB_DIR,
-	(uint16_t) &PORTC_DIR,
-	(uint16_t) &PORTD_DIR,
-	(uint16_t) &PORTE_DIR,
-};
-
-const uint16_t PROGMEM port_to_output_PGM[] = {
+const uint16_t PROGMEM port_to_PGM[] = {
 	NOT_A_PORT,
 	(uint16_t) &PORTA,
 	(uint16_t) &PORTB,
 	(uint16_t) &PORTC,
 	(uint16_t) &PORTD,
 	(uint16_t) &PORTE,
-};
-
-const uint16_t PROGMEM port_to_input_PGM[] = {
-	NOT_A_PORT,
-	(uint16_t) &PORTA_IN,
-	(uint16_t) &PORTB_IN,
-	(uint16_t) &PORTC_IN,
-	(uint16_t) &PORTD_IN,
-	(uint16_t) &PORTE_IN,
 };
 
 const uint8_t PROGMEM digital_pin_to_port_PGM[] = {
@@ -152,12 +134,12 @@ const uint8_t PROGMEM digital_pin_to_bit_mask_PGM[] = {
 		_BV( 1 ),
 		_BV( 6 ),
 		_BV( 7 ), // 21
-		_BV( 0 ), // A0
-		_BV( 1 ),
+		_BV( 1 ), // A0
 		_BV( 2 ),
 		_BV( 3 ),
 		_BV( 4 ),
 		_BV( 5 ),
+		_BV( 6 ),
 };
 
 const uint8_t PROGMEM digital_pin_to_timer_PGM[] = {

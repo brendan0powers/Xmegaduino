@@ -26,29 +26,41 @@
 #include "wiring_private.h"
 #include "pins_arduino.h"
 
+// Defined in WInterrupts.c
+extern uint8_t getBitFromBitField(uint8_t input);
+
 void pinMode(uint8_t pin, uint8_t mode)
 {
 	
-	uint8_t bit = digitalPinToBitMask(pin);
-	uint8_t port = digitalPinToPort(pin);
-	volatile uint8_t *reg;
+	uint8_t bitmask = digitalPinToBitMask(pin);
+	uint8_t bit = getBitFromBitField(bitmask);
+	uint8_t portIndex = digitalPinToPort(pin);
+	volatile PORT_t *port;
 
-	if (port == NOT_A_PIN) return;
+	if (portIndex == NOT_A_PIN) return;
 
 	// JWS: can I let the optimizer do this?
-	reg = portModeRegister(port);
+	port = portRegister(portIndex);
+	uint8_t* pinctrl = (uint8_t*)&port->PIN0CTRL;
 
-	if (mode == INPUT) { 
-		uint8_t oldSREG = SREG;
-                cli();
-		*reg &= ~bit;
-		SREG = oldSREG;
+	uint8_t oldSREG = SREG;
+	cli();
+
+	if (mode == INPUT) {
+		port->DIRCLR = bitmask;
+		pinctrl[bit] &= ~PORT_OPC_gm; // Reset all pullups on that pin
+	} else if (mode == INPUT_PULLDOWN){
+		port->DIRCLR = bitmask;
+		pinctrl[bit] |= PORT_OPC_PULLDOWN_gc;
+	} else if (mode == INPUT_PULLUP){
+		port->DIRCLR = bitmask;
+		pinctrl[bit] |= PORT_OPC_PULLUP_gc;
 	} else {
-		uint8_t oldSREG = SREG;
-                cli();
-		*reg |= bit;
-		SREG = oldSREG;
+		port->DIRSET = bitmask;
+		pinctrl[bit] &= ~PORT_OPC_gm; // Reset all pullups on that pin
 	}
+
+	SREG = oldSREG;
 }
 
 // Forcing this inline keeps the callers from having to push their own stuff
@@ -77,24 +89,24 @@ void digitalWrite(uint8_t pin, uint8_t val)
 	
 	uint8_t timer = digitalPinToTimer(pin);
 	uint8_t bit = digitalPinToBitMask(pin);
-	uint8_t port = digitalPinToPort(pin);
-	volatile uint8_t *out;
+	uint8_t portIndex = digitalPinToPort(pin);
+	volatile PORT_t *port;
 
-	if (port == NOT_A_PIN) return;
+	if (portIndex == NOT_A_PIN) return;
 
 	// If the pin that support PWM output, we need to turn it off
 	// before doing a digital write.
 	if (timer != NOT_ON_TIMER) turnOffPWM(timer);
 
-	out = portOutputRegister(port);
+	port = portRegister(portIndex);
 
 	uint8_t oldSREG = SREG;
 	cli();
 
 	if (val == LOW) {
-		*out &= ~bit;
+		port->OUTCLR = bit;
 	} else {
-		*out |= bit;
+		port->OUTSET = bit;
 	}
 
 	SREG = oldSREG;
@@ -105,14 +117,14 @@ int digitalRead(uint8_t pin)
 	
 	uint8_t timer = digitalPinToTimer(pin);
 	uint8_t bit = digitalPinToBitMask(pin);
-	uint8_t port = digitalPinToPort(pin);
+	uint8_t portIndex = digitalPinToPort(pin);
 
-	if (port == NOT_A_PIN) return LOW;
+	if (portIndex == NOT_A_PIN) return LOW;
 
 	// If the pin that support PWM output, we need to turn it off
 	// before getting a digital reading.
 	if (timer != NOT_ON_TIMER) turnOffPWM(timer);
 
-	if (*portInputRegister(port) & bit) return HIGH;
+	if (portRegister(portIndex)->IN & bit) return HIGH;
 	return LOW;
 }
