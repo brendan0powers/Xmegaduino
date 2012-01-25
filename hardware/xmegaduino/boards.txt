@@ -205,3 +205,38 @@ akafuino.bootloader.fuse1=0xFF
 akafuino.bootloader.fuse2=0xBF
 akafuino.bootloader.fuse4=0xFE
 akafuino.bootloader.fuse5=0xFD
+
+##############################################################
+
+xplain_usb.name=ProtoMega
+
+xplain_usb.build.mcu=atxmega32a4
+xplain_usb.build.f_cpu=32000000L
+xplain_usb.build.core=xmega
+xplain_usb.build.variant=protomega
+
+#xplain_usb.upload.using=arduino:avrispmkii
+#xplain_usb.upload.protocol=arduino
+#xplain_usb.upload.maximum_size=31000
+#xplain_usb.upload.speed=57600
+
+xplain_usb.upload.protocol=avr109
+xplain_usb.upload.maximum_size=32768
+xplain_usb.upload.speed=115200
+
+xplain_usb.bootloader.path=akafuino
+xplain_usb.bootloader.file=akafuino-boot.hex
+xplain_usb.bootloader.unlock_bits=0xBF
+xplain_usb.bootloader.lock_bits=0xBF
+
+# FUSE BITS
+# fuse0: JTAGUSERID
+# fuse1: WDWP=0xF WDP=0xF
+# fuse2: Boot Loader Reset
+# fuse4: JTAGEN
+# fuse5: BODLVL=2.1V
+xplain_usb.bootloader.fuse0=0xFF
+xplain_usb.bootloader.fuse1=0xFF
+xplain_usb.bootloader.fuse2=0xBF
+xplain_usb.bootloader.fuse4=0xFE
+xplain_usb.bootloader.fuse5=0xFD
