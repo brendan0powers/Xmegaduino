@@ -26,6 +26,8 @@
 #include <avr/pgmspace.h>
 #include "wiring_private.h"
 
+#define USE_RTC
+
 // Some versions of avr-gcc on linux defines XXX_bp instead of _gp.
 #if !defined ADC_SWEEP_gp
     #define ADC_SWEEP_gp  ADC_SWEEP0_bp
