@@ -142,22 +142,23 @@ const uint8_t PROGMEM digital_pin_to_bit_mask_PGM[] = {
 };
 
 const uint8_t PROGMEM digital_pin_to_timer_PGM[] = {
-        NOT_ON_TIMER,     // D1
+	NOT_ON_TIMER,
+        TIMER_E0D,     // D1
+        TIMER_E0C,
+        TIMER_E0B,
+       	TIMER_E0A,
+        TIMER_D0D,
+        TIMER_D0C,
+        TIMER_D0B,
+       	TIMER_D0A,     // D8
         NOT_ON_TIMER,
         NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,     // D8
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,     // D16
+        TIMER_C1B,
+        TIMER_C1A,
+        TIMER_C0D,
+        TIMER_C0C,
+        TIMER_C0B,
+        TIMER_C0A,     // D16
         NOT_ON_TIMER,     // A1
         NOT_ON_TIMER,
         NOT_ON_TIMER,
