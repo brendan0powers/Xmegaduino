@@ -27,6 +27,7 @@
 #include <avr/pgmspace.h>
 
 #define USE_RTC // Use RTC for millis etc.
+
 #define REPEAT8(x) x, x, x, x, x, x, x, x
 #define BV0TO7 _BV(0), _BV(1), _BV(2), _BV(3), _BV(4), _BV(5), _BV(6), _BV(7)
 #define BV7TO0 _BV(7), _BV(6), _BV(5), _BV(4), _BV(3), _BV(2), _BV(1), _BV(0)
@@ -70,32 +71,15 @@ const static uint8_t A8 = 25;
 // these arrays map port names (e.g. port B) to the
 // appropriate addresses for various functions (e.g. reading
 // and writing)
-const uint16_t PROGMEM port_to_mode_PGM[] = {
-	NOT_A_PORT,
-	(uint16_t) &PORTA.DIR,
-	(uint16_t) &PORTB.DIR,
-	(uint16_t) &PORTC.DIR,
-	(uint16_t) &PORTD.DIR,
-	(uint16_t) &PORTE.DIR,
+const uint16_t PROGMEM port_to_PGM[] = {
+        NOT_A_PORT,
+        (uint16_t) &PORTA,
+        (uint16_t) &PORTB,
+        (uint16_t) &PORTC,
+        (uint16_t) &PORTD,
+        (uint16_t) &PORTE,
 };
 
-const uint16_t PROGMEM port_to_output_PGM[] = {
-	NOT_A_PORT,
-	(uint16_t) &PORTA.OUT,
-	(uint16_t) &PORTB.OUT,
-	(uint16_t) &PORTC.OUT,
-	(uint16_t) &PORTD.OUT,
-	(uint16_t) &PORTE.OUT,
-};
-
-const uint16_t PROGMEM port_to_input_PGM[] = {
-	NOT_A_PORT,
-	(uint16_t) &PORTA.IN,
-	(uint16_t) &PORTB.IN,
-	(uint16_t) &PORTC.IN,
-	(uint16_t) &PORTD.IN,
-	(uint16_t) &PORTE.IN,
-};
 
 const uint8_t PROGMEM digital_pin_to_port_PGM[] = {
 	// PORTLIST
