@@ -151,14 +151,14 @@ const uint8_t PROGMEM digital_pin_to_timer_PGM[] = {
         TIMER_D0C,
         TIMER_D0B,
        	TIMER_D0A,     // D8
-        NOT_ON_TIMER,
-        NOT_ON_TIMER,
-        TIMER_C1B,
-        TIMER_C1A,
-        TIMER_C0D,
-        TIMER_C0C,
-        TIMER_C0B,
-        TIMER_C0A,     // D16
+        TIMER_C2HD,
+        TIMER_C2HC,
+        TIMER_C2HB,
+        TIMER_C2HA,
+        TIMER_C2LD,
+        TIMER_C2LC,
+        TIMER_C2LB,
+        TIMER_C2LA,     // D16
         NOT_ON_TIMER,     // A1
         NOT_ON_TIMER,
         NOT_ON_TIMER,
@@ -193,7 +193,25 @@ const TC0_t* PROGMEM timer_to_tc0_PGM[] = {
 	&TCE0,
 	NULL,
 	NULL,
-	};
+
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+
+	NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+};
 
 const TC1_t* PROGMEM timer_to_tc1_PGM[] = {
 	NULL,
@@ -212,6 +230,73 @@ const TC1_t* PROGMEM timer_to_tc1_PGM[] = {
 	&TCD1,
 	&TCD1,
 
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+
+	NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+};
+
+const TC2_t* PROGMEM timer_to_tc2_PGM[] = {
+        NULL,
+
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+
+        &TCC2,   
+        &TCC2,
+        &TCC2,
+        &TCC2, 
+        &TCC2,
+        &TCC2,
+        &TCC2,
+        &TCC2,
+
+	&TCD2,
+        &TCD2,
+        &TCD2,
+        &TCD2,
+        &TCD2,
+        &TCD2,
+        &TCD2,
+        &TCD2,
 };
 
 const uint8_t PROGMEM timer_to_channel_PGM[] = {
@@ -237,6 +322,24 @@ const uint8_t PROGMEM timer_to_channel_PGM[] = {
     3,
     0,
     1,
+
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
 };
 
 const uint8_t PROGMEM adc_to_channel_PGM[] = {
