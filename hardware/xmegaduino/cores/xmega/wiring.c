@@ -45,6 +45,7 @@
 
 volatile unsigned long millis_count = 0;
 volatile unsigned long seconds_count = 0;
+
 #if defined(USE_RTC)
 volatile unsigned long rtc_millis = 0;
 
@@ -147,8 +148,7 @@ void delayMicroseconds(unsigned int us)
         );
 }
 
-
-#else
+#elif !defined(PROTOMEGA_TIMING)
 ISR(TCF0_OVF_vect)
 {
 	/// TODO: Do we need to call cli()?
@@ -212,6 +212,169 @@ void delayMicroseconds(unsigned int us)
 
         while (micros() - start <= us);
 }
+#else // PROTOMEGA_TIMING is enabled.
+
+// this is a lot faster than the arduino's tick-count but it's fine because
+// we're working with a 16-bit clock.
+// 32MHz: .25us : 4MHz
+// 16MHz: .5us  : 2MHz
+//  8MHz: 1us   : 1MHz
+// to change this, you must also change TIMER_CTRLA to match
+#define TIMER_PRESCALE 8
+#define TIMER_CTRLA TC_CLKSEL_DIV8_gc
+
+// how many ticks in 1us.  This better be an integer for best timing
+// i.e. your CPU speed should be a multiple of 8MHz.
+#define TIMER_MICROS_PER_TICK (F_CPU / TIMER_PRESCALE / 1000000)
+
+// we want the clock to overflow once a millisecond, i.e. at 1KHz
+// with a /8 prescale, this value is:
+//   32MHz : 4000
+//   16MHz : 2000
+//   8MHz  : 1000
+// All of these are well within our 16 bit range.
+// The code relies on this being an integer so don't use some crazy
+// clock rate that is not a multiple of 1KHz.
+#define TIMER_PERIOD ((F_CPU / TIMER_PRESCALE) / 1000)
+
+// This is written to by TIMER_OVF_vect.  Don't write to it from anywhere else,
+// and only read when interrupts are disabled.
+volatile uint32_t timer_millis = 0;
+
+// Currently, we require a 16 bit timer.  Change all these register constants to 
+// change which timer we are using.
+#define TIMER_OVF_vect TCD1_OVF_vect
+#define TIMER (TCD1)
+
+/*! \brief 
+ *
+ *  This ISR keeps track of the milliseconds 
+ */
+ISR(TIMER_OVF_vect)
+{
+    timer_millis++;
+}
+
+unsigned long millis()
+{
+ 	uint32_t millis;
+ 	uint8_t oldSREG = SREG;
+ 
+	// disable interrupts while we read the timer count.
+	cli();
+    millis = timer_millis;
+	SREG = oldSREG;
+
+	return millis;
+}
+
+unsigned long micros(void) 
+{
+ 	uint32_t millis;
+    uint16_t ticks;
+    uint32_t micros;
+ 	uint8_t oldSREG = SREG;
+ 
+	// disable interrupts while we read the timer count.
+	cli();
+    millis = timer_millis;
+    ticks = TIMER.CNT;
+	SREG = oldSREG;
+    
+    return millis * 1000 + ticks / TIMER_MICROS_PER_TICK;
+}
+
+/* Delay for the given number of microseconds.  Assumes a 8, 16 or 32 MHz clock. */
+// Note that micros MUST be less than 16384.
+// Since we are counting cycles, if you want the best possible
+// timing you should disable interrupts before calling this.
+// disabling interrupts inside this won't really help because
+// interrupts could still trigger during the prelude or after the return.
+void delayMicroseconds(unsigned int microsecs)
+{
+  // Why is this in assembly?  Because we're counting cycles.
+  // we don't want to let the compiler mess this up for us.
+
+  // Why are there three copies? Because we're counting cycles.
+  // different clock speeds means we need to different numbers of loops.
+#if F_CPU == 32000000L
+
+  // for 32MHz we have an 8-cycle loop for 1/4 of a microsecond per loop.
+  // we take 4 cycles to shift, 4 cycles to return, and then 8 cycles
+  // to skip invalid parameters for a total of 16 cycles of overhead
+  // which translates to two loops.
+  __asm__ __volatile__ (    
+    "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
+    "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
+    "cpi %B0, 0x40\n\t" // 1 cycle (we can't delay for more than 16384us.)
+    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "lsl %A0\n\t" // 1 cycle
+    "rol %B0\n\t" // 1 cycle
+    "lsl %A0\n\t" // 1 cycle
+    "rol %B0\n\t" // 1 cycle ~ total shifting time 4 cycles. 
+    "sbiw %0, 2\n\t" // 2 cycles (subtract 2 loops to account for overhead.)
+    "NOP\n\t"     // 1 cycle (so that the overhead rounds to 16 cycles)
+    "1: sbiw %0,1\n\t" // 2 cycles
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
+    "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
+    "2:\n\t"           // 4 cycles for return
+    : "=w" (microsecs) : "0" (microsecs)
+  );
+#elif F_CPU == 16000000L
+  // this is really similar to above except that the loop now represents .5 us, so we only need to shift once.
+  __asm__ __volatile__ (    
+    "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
+    "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
+    "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
+    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "lsl %A0\n\t" // 1 cycle
+    "rol %B0\n\t" // 1 cycle
+    "NOP\n\t" // 1 cycle
+    "sbiw %0, 2\n\t" // 2 cycles (subtract 2 loops to account for overhead.)
+    "breq 2f\n\t"     // 1 cycle (assuming we don't hit it. 2 if we do.)
+    "NOP\n\t" // 1 cycle (this makes total overhead 16 cycles.)
+    "1: sbiw %0,1\n\t" // 2 cycles
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "NOP\n\t"          // 1 cycle
+    "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
+    "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
+    "2:\n\t"           // 4 cycles for return
+    : "=w" (microsecs) : "0" (microsecs)
+  );
+#elif F_CPU == 8000000L
+  // Same as above again except the loop is only 4 cycles long, so the set-up represents more loops.  Again the loop is .5 us.
+  // if the user passes in 1us, we'll delay for 15 cycles (~2us)
+  // all other values should be accurate if interrupts are disabled.
+  __asm__ __volatile__ (    
+    "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
+    "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
+    "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
+    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "lsl %A0\n\t" // 1 cycle
+    "rol %B0\n\t" // 1 cycle
+    "sbiw %0, 4\n\t" // 2 cycles (subtract 4 loops to account for overhead.)
+    "brlo 2f\n\t"     // 1 cycle (assuming we don't branch. 2 if we do.)
+    "breq 2f\n\t"     // 1 cycle (assuming we don't hit it. 2 if we do.)
+    "NOP\n\t"         // 1 cycle (rounds off to 16 cycles of overhead.)
+    "1: sbiw %0,1\n\t" // 2 cycles
+    "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
+    "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
+    "2:\n\t"           // 4 cycles for return
+    : "=w" (microsecs) : "0" (microsecs)
+  );
+#else
+  // well, we don't have a convenient clock rate for cycle counting, so just inaccurately busy wait for the microsecond counter.
+  unsigned long start = micros();
+  while (micros() - start <= microsecs) {}
+#endif
+}
+
 #endif // USE_RTC
 
 void delay(unsigned long ms)
@@ -263,7 +426,7 @@ void init()
         // TODO: gc: ClkPer2 should really be 2x ClkSys for EBI to work (Xmega A doc, 4.10.1)
         // TODO: gc: ClkPer4 should really be 4x ClkSys for Hi-Res extensions (16.2)
 
-#ifdef USE_RTC
+#if defined(USE_RTC) 
 	/* Turn on internal 32kHz. */
 	OSC.CTRL |= OSC_RC32KEN_bm;
 
@@ -274,7 +437,7 @@ void init()
 
 	/* Set internal 32kHz oscillator as clock source for RTC. */
 	CLK.RTCCTRL = CLK_RTCSRC_RCOSC_gc | CLK_RTCEN_bm;//1kHz
-#else
+#elif !defined(PROTOMEGA_TIMING)
         /*************************************/
         /* Init real time clock for millis() */
 
@@ -297,6 +460,11 @@ void init()
         TCF1.CTRLB    = ( TCF1.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
         TCF1.CTRLD    = TC_EVACT_UPDOWN_gc | TC1_EVDLY_bm;
         TCF1.INTCTRLA = TC_OVFINTLVL_HI_gc;
+#else // PROTOMEGA_TIMING is defined.
+        TIMER.CTRLA  = TIMER_CTRLA;
+        TIMER.PERBUF = TIMER_PERIOD;
+        TIMER.CTRLB    = ( TIMER.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
+        TIMER.INTCTRLA = TC_OVFINTLVL_LO_gc; // Use "low priority" interrupts so we don't mess up other people's interrupt timing.
 #endif
         /*************************************/
         /* Init I/O ports */
