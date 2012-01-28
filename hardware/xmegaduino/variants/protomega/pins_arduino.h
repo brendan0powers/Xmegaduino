@@ -36,16 +36,16 @@
 #define NUM_ANALOG_INPUTS           9
 #define EXTERNAL_NUM_INTERRUPTS     16
 
-#define analogInputToDigitalPin(p)  (p + 17)
-#define digitalPinHasPWM(p)         (((p) >= 16 && (p) <= 21) || ((p) >= 24 && (p)<= 29) || ((p) >= 32 && (p)<= 37))
+#define analogInputToDigitalPin(p)  ((p < 9) ? (p) + 17 : -1)
+#define digitalPinHasPWM(p)         (((p) >= 1 && (p) <= 8) || ((p) >= 11 && (p)<= 16))
 
-const static uint8_t SS    = 20;
-const static uint8_t MOSI  = 21;
-const static uint8_t MISO  = 22;
-const static uint8_t SCK   = 23;
+const static uint8_t SS    = 12;
+const static uint8_t MOSI  = 11;
+const static uint8_t MISO  = 10;
+const static uint8_t SCK   = 9;
 
-const static uint8_t SDA = 16;
-const static uint8_t SCL = 17;
+const static uint8_t SDA = 4;
+const static uint8_t SCL = 3;
 const static uint8_t LED_BUILTIN = 13;
 
 const static uint8_t A0 = 17;
@@ -58,8 +58,8 @@ const static uint8_t A6 = 23;
 const static uint8_t A7 = 24;
 const static uint8_t A8 = 25;
 
-#define Wire xmWireC
-#define Wire1 xmWireE
+#define Wire xmWireE
+#define Wire1 xmWireC
 
 #define digitalPinToPCICR(p)    (((p) >= 0 && (p) <= 21) ? (&PCICR) : ((uint8_t *)0))
 #define digitalPinToPCICRbit(p) (((p) <= 7) ? 2 : (((p) <= 13) ? 0 : 1))
@@ -237,6 +237,18 @@ const uint8_t PROGMEM timer_to_channel_PGM[] = {
     3,
     0,
     1,
+};
+
+const uint8_t PROGMEM adc_to_channel_PGM[] = {
+    11,
+    10,
+    9,
+    8,
+    4,
+    3,
+    2,
+    1,
+    0
 };
 
 #endif
