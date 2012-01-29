@@ -307,7 +307,7 @@ void delayMicroseconds(unsigned int microsecs)
     "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
     "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
     "cpi %B0, 0x40\n\t" // 1 cycle (we can't delay for more than 16384us.)
-    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "brsh fallback\n\t" // 1 cycle (assuming we didn't hit it).
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
     "lsl %A0\n\t" // 1 cycle
@@ -324,7 +324,7 @@ void delayMicroseconds(unsigned int microsecs)
     "NOP\n\t"          // 1 cycle
     "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
     "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
-    "2:\n\t"           // 4 cycles for return
+    "2: RET\n\t"           // 4 cycles for return
     : "=w" (microsecs) : "0" (microsecs)
   );
 #elif F_CPU == 16000000L
@@ -338,7 +338,7 @@ void delayMicroseconds(unsigned int microsecs)
     "NOP\n\t" // 2 cycles - these are here to pad out the overhead    
     "breq 2f\n\t" //1 cycle (2 otherwise - this makes the total time 16 cycles = 1us if we hit it.)
     "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
-    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "brsh fallback\n\t" // 1 cycle (assuming we didn't hit it).
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
     "sbiw %0, 1\n\t" // 2 cycles (subtract 1 loop for a total of 3 to account for overhead. (we skipped 2 when we subtracted 1 to check if we were delaying 1us))
@@ -352,7 +352,7 @@ void delayMicroseconds(unsigned int microsecs)
     "NOP\n\t"          // 1 cycle
     "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
     "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
-    "2:\n\t"           // 4 cycles for return
+    "2: RET\n\t"           // 4 cycles for return
     : "=w" (microsecs) : "0" (microsecs)
   );
 #elif F_CPU == 8000000L
@@ -368,7 +368,7 @@ void delayMicroseconds(unsigned int microsecs)
     "sbiw %0, 1\n\t"  // 2 cycles (if the user said 1 micros, we want to leave fast)
     "breq 2f\n\t" // 1 cycle (2 if we hit it, making the total time for 2us ~= 2us.)
     "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
-    "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
+    "brsh fallback\n\t" // 1 cycle (assuming we didn't hit it).
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
     "sbiw %0, 2\n\t" // 2 cycles (subtract 6 loops to account for overhead. (we subtracted 4 before when we were checking for 1us.)
@@ -378,14 +378,46 @@ void delayMicroseconds(unsigned int microsecs)
     "1: sbiw %0,1\n\t" // 2 cycles
     "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
     "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
-    "2:\n\t"           // 4 cycles for return
+    "2: RET\n\t"           // 4 cycles for return
     : "=w" (microsecs) : "0" (microsecs)
   );
-#else
-  // well, we don't have a convenient clock rate for cycle counting, so just inaccurately busy wait for the microsecond counter.
-  unsigned long start = micros();
-  while (micros() - start <= microsecs) {}
 #endif
+  // well, we don't have a convenient clock rate for cycle counting, so just inaccurately busy wait for the microsecond counter.
+  __asm__ __volatile__ (
+    "fallback: "
+      "push r11\n\t"
+      "push r12\n\t"
+      "push r13\n\t"
+      "push r14\n\t"
+      "push r15\n\t"
+      "push r16\n\t"
+      "push r17\n\t"
+      "clr r11\n\t"
+      "movw r12,%0\n\t"
+      "call micros\n\t" // this loads the microsecond count into r22:r25
+      "movw r14,r22\n\t"
+      "movw r16,r24\n\t" // copy into r16:r19 - this represents the "Start"
+      "1: call micros\n\t"
+        "sub r22, r14\n\t"
+        "sbc r23, r15\n\t"
+        "sbc r24, r16\n\t"
+        "sbc r25, r17\n\t" // subtract "start"
+        "cp   r12, r22\n\t"
+        "cpc  r13, r23\n\t"
+        "cpc  r11, r24\n\t"
+        "cpc  r11, r25\n\t" // compare with the microsecs arg
+        "brsh 1b\n\t"
+      "pop r17\n\t"
+      "pop r16\n\t"
+      "pop r15\n\t"
+      "pop r14\n\t"
+      "pop r13\n\t"
+      "pop r12\n\t"
+      "pop r11\n\t"
+
+      : "=w" (microsecs): "0" (microsecs)
+  );
+
 }
 
 #endif // USE_RTC
