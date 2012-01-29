@@ -18,4 +18,4 @@ If the chip is running at 32MHz, 16MHz, or 8MHz (32MHz is the default), the prot
 
 `delayMicroseconds` takes into account the time it takes to call the function, and the time it takes to load the 16 bit argument into registers.  The reason for this is so that `delayMicroseconds(15); delayMicroseconds(15);` will be exactly equivalent to `delayMicroseconds(30);`.
 
-At 8MHz clock speeds, `delayMicroseconds()` is only accurate if the argument is less than 32767.  At 32MHz and 16MHz all arguments should be accurate.  At clock speeds other than 32MHz, 16MHz, and 8MHz, accuracy is not guarenteed.
+At 8MHz clock speeds, `delayMicroseconds()` is only accurate if the argument is greater than 1 and less than 32767.  At 32MHz and 16MHz all arguments should be accurate.  At clock speeds other than 32MHz, 16MHz, and 8MHz, accuracy is not guarenteed.
