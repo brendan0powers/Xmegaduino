@@ -64,7 +64,30 @@ void attachInterrupt(uint8_t interruptNum, void (*userFunc)(void), int mode) {
   if( EXTERNAL_NUM_INTERRUPTS <= interruptNum ) {
       return;
   }
-    
+  
+  //Convert arduino mode value to the XMega mode value
+  switch(mode)
+  {
+	case LOW:
+		mode = 3;
+		break;
+	case CHANGE:
+		mode = 0;
+		break;
+	case RISING:
+		mode = 1;
+		break;
+	case FALLING:
+		mode = 2;
+		break;
+	case LEVEL:
+		mode = 3;
+		break;
+	default:
+		mode = 0;
+		break;
+  }
+  
   // Configure the interrupt mode (trigger on low input, any change, rising
   // edge, or falling edge).  The mode constants were chosen to correspond
   // to the configuration bits in the hardware register, so we simply shift
@@ -135,6 +158,8 @@ void PORT_INT( int portIndex )
     } else if ( PORT_ISC_RISING_gc==mode && rising ) {
         call = 1;
     } else if ( PORT_ISC_FALLING_gc==mode && falling ) {
+        call = 1;
+    } else if ( PORT_ISC_LEVEL_gc==mode && valueLow ) {
         call = 1;
     }
     if ( call ) {
