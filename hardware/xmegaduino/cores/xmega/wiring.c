@@ -300,10 +300,10 @@ void delayMicroseconds(unsigned int microsecs)
 #if F_CPU == 32000000L
 
   // for 32MHz we have an 8-cycle loop for 1/4 of a microsecond per loop.
-  // we take 4 cycles to shift, 4 cycles to return, and then 8 cycles
-  // to skip invalid parameters for a total of 16 cycles of overhead
-  // which translates to two loops.
-  __asm__ __volatile__ (    
+  // 24 cycles of overhead which translates to 3 loops.
+  __asm__ __volatile__ (   
+                        // load takes 2 cycles.
+                        // call takes 3 cycles.
     "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
     "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
     "cpi %B0, 0x40\n\t" // 1 cycle (we can't delay for more than 16384us.)
@@ -312,8 +312,11 @@ void delayMicroseconds(unsigned int microsecs)
     "rol %B0\n\t" // 1 cycle
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle ~ total shifting time 4 cycles. 
-    "sbiw %0, 2\n\t" // 2 cycles (subtract 2 loops to account for overhead.)
-    "NOP\n\t"     // 1 cycle (so that the overhead rounds to 16 cycles)
+    "sbiw %0, 3\n\t" // 2 cycles (subtract 3 loops to account for overhead.)
+    "NOP\n\t"
+    "NOP\n\t"
+    "NOP\n\t"
+    "NOP\n\t"     // 4 cycles (so that the overhead rounds to 24 cycles)
     "1: sbiw %0,1\n\t" // 2 cycles
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
@@ -327,16 +330,21 @@ void delayMicroseconds(unsigned int microsecs)
 #elif F_CPU == 16000000L
   // this is really similar to above except that the loop now represents .5 us, so we only need to shift once.
   __asm__ __volatile__ (    
-    "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
-    "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
+                        // load takes 2 cycles.
+                        // call takes 3 cycles.
+    "sbiw %0, 1\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
+    "brlo 2f\n\t"// 1 cycle (assuming we didn't hit it).
+    "NOP\n\t"
+    "NOP\n\t" // 2 cycles - these are here to pad out the overhead    
+    "breq 2f\n\t" //1 cycle (2 otherwise - this makes the total time 16 cycles = 1us if we hit it.)
     "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
     "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
-    "NOP\n\t" // 1 cycle
-    "sbiw %0, 2\n\t" // 2 cycles (subtract 2 loops to account for overhead.)
-    "breq 2f\n\t"     // 1 cycle (assuming we don't hit it. 2 if we do.)
-    "NOP\n\t" // 1 cycle (this makes total overhead 16 cycles.)
+    "sbiw %0, 1\n\t" // 2 cycles (subtract 1 loop for a total of 3 to account for overhead. (we skipped 2 when we subtracted 1 to check if we were delaying 1us))
+    "NOP\n\t"
+    "NOP\n\t"
+    "NOP\n\t" // delay 3 cycles for a total of 24 clocks overhead.
     "1: sbiw %0,1\n\t" // 2 cycles
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
@@ -349,19 +357,24 @@ void delayMicroseconds(unsigned int microsecs)
   );
 #elif F_CPU == 8000000L
   // Same as above again except the loop is only 4 cycles long, so the set-up represents more loops.  Again the loop is .5 us.
-  // if the user passes in 1us, we'll delay for 15 cycles (~2us)
+  // if the user passes in 1us, we'll delay for 13 cycles (~1.5us), 1us delay for 17 cycles (~2us).
   // all other values should be accurate if interrupts are disabled.
   __asm__ __volatile__ (    
-    "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
-    "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
+                        // load takes 2 cycles
+                        // call takes 3 cycles.
+    "sbiw %0, 1\n\t"  // 2 cycles (if the user said 1 micros, we want to leave fast)
+    "breq 2f\n\t" // 1 cycles (2 if we hit it which makes total time for 1us = 13cycles)
+    "brlo 2f\n\t"// 1 cycle (this checks for if the user passed in 0)
+    "sbiw %0, 1\n\t"  // 2 cycles (if the user said 1 micros, we want to leave fast)
+    "breq 2f\n\t" // 1 cycle (2 if we hit it, making the total time for 2us ~= 2us.)
     "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
     "brsh 2f\n\t" // 1 cycle (assuming we didn't hit it).
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
-    "sbiw %0, 4\n\t" // 2 cycles (subtract 4 loops to account for overhead.)
-    "brlo 2f\n\t"     // 1 cycle (assuming we don't branch. 2 if we do.)
-    "breq 2f\n\t"     // 1 cycle (assuming we don't hit it. 2 if we do.)
-    "NOP\n\t"         // 1 cycle (rounds off to 16 cycles of overhead.)
+    "sbiw %0, 2\n\t" // 2 cycles (subtract 6 loops to account for overhead. (we subtracted 4 before when we were checking for 1us.)
+    "breq 2f\n\t" // leave if no cycles to do (this will only happen if the caller asked for 3us - total delay at this point is exactly 3us).
+    "NOP\n\t" // round out the overhead to 24 cycles.
+    
     "1: sbiw %0,1\n\t" // 2 cycles
     "brne 1b\n\t"      // 2 cycles (1 cycle when we don't hit it)
     "NOP\n\t"          // 1 cycle (to make up for missing the last branch)
