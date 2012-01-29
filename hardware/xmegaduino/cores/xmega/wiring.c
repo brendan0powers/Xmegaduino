@@ -337,16 +337,16 @@ void delayMicroseconds(unsigned int microsecs)
     "NOP\n\t"
     "NOP\n\t" // 2 cycles - these are here to pad out the overhead    
     "breq 2f\n\t" //1 cycle (2 otherwise - this makes the total time 16 cycles = 1us if we hit it.)
-    "cpi %B0, 0x80\n\t" // 1 cycle (we can't delay for more than 32768us.)
-    "brsh fallback\n\t" // 1 cycle (assuming we didn't hit it).
+    "clr r26\n\t" // 1 cycle - as before, we use r26 as the MSB of the loop counter.
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
+    "rol r26\n\t" // 1 cycle - total shifting time 3 cycles.
     "sbiw %0, 1\n\t" // 2 cycles (subtract 1 loop for a total of 3 to account for overhead. (we skipped 2 when we subtracted 1 to check if we were delaying 1us))
+    "sbci r26, 0\n\t" // 1 cycle
     "NOP\n\t"
-    "NOP\n\t"
-    "NOP\n\t" // delay 3 cycles for a total of 24 clocks overhead.
+    "NOP\n\t" // delay 2 cycles for a total of 24 clocks overhead.
     "1: sbiw %0,1\n\t" // 2 cycles
-    "NOP\n\t"          // 1 cycle
+    "sbci r26, 0\n\t"  // 1 cycle
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
