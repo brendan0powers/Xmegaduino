@@ -237,51 +237,55 @@ void delayMicroseconds(unsigned int us)
 // clock rate that is not a multiple of 1KHz.
 #define TIMER_PERIOD ((F_CPU / TIMER_PRESCALE) / 1000)
 
+#define MILLIS_PER_OVERFLOW 0x10000
+
 // This is written to by TIMER_OVF_vect.  Don't write to it from anywhere else,
 // and only read when interrupts are disabled.
-volatile uint32_t timer_millis = 0;
+volatile uint16_t milli_overflows = 0;
 
 // Currently, we require a 16 bit timer.  Change all these register constants to 
 // change which timer we are using.
-#define TIMER_OVF_vect TCD1_OVF_vect
+#define MILLI_OVF_vect TCC1_OVF_vect
 #define TIMER (TCD1)
+#define TIMER_OVF_MUX (EVSYS_CHMUX_TCD1_OVF_gc)
+#define MILLI_TIMER (TCC1)
+#define MILLI_TIMER_CTRLA (TC_CLKSEL_EVCH0_gc)
 
 /*! \brief 
  *
  *  This ISR keeps track of the milliseconds 
  */
-ISR(TIMER_OVF_vect)
+ISR(MILLI_OVF_vect)
 {
-    timer_millis++;
+    milli_overflows++;
 }
 
 unsigned long millis()
 {
- 	uint32_t millis;
+    uint32_t millisecs;
  	uint8_t oldSREG = SREG;
  
 	// disable interrupts while we read the timer count.
 	cli();
-    millis = timer_millis;
+    millisecs = milli_overflows;
 	SREG = oldSREG;
-
-	return millis;
+    millisecs *= MILLIS_PER_OVERFLOW;
+    millisecs += MILLI_TIMER.CNT;
+	return millisecs;
 }
 
 unsigned long micros(void) 
 {
- 	uint32_t millis;
+ 	uint32_t millisecs;
     uint16_t ticks;
     uint32_t micros;
  	uint8_t oldSREG = SREG;
  
 	// disable interrupts while we read the timer count.
-	cli();
-    millis = timer_millis;
+    millisecs = millis();
     ticks = TIMER.CNT;
-	SREG = oldSREG;
     
-    return millis * 1000 + ticks / TIMER_MICROS_PER_TICK;
+    return millisecs * 1000 + ticks / TIMER_MICROS_PER_TICK;
 }
 
 /* Delay for the given number of microseconds.  Assumes a 8, 16 or 32 MHz clock. */
@@ -477,7 +481,11 @@ void init()
         TIMER.CTRLA  = TIMER_CTRLA;
         TIMER.PERBUF = TIMER_PERIOD;
         TIMER.CTRLB    = ( TIMER.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
-        TIMER.INTCTRLA = TC_OVFINTLVL_LO_gc; // Use "low priority" interrupts so we don't mess up other people's interrupt timing.
+        EVSYS.CH0MUX = TIMER_OVF_MUX;
+        MILLI_TIMER.CTRLA = MILLI_TIMER_CTRLA;
+        MILLI_TIMER.CTRLB    = ( MILLI_TIMER.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
+        MILLI_TIMER.INTCTRLA = TC_OVFINTLVL_LO_gc; // Use "low priority" interrupts so we don't mess up other people's interrupt timing.
+        MILLI_TIMER.PERBUF = MILLIS_PER_OVERFLOW - 1;
 #endif
         /*************************************/
         /* Init I/O ports */
