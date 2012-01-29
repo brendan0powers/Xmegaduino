@@ -285,7 +285,7 @@ unsigned long micros(void)
 }
 
 /* Delay for the given number of microseconds.  Assumes a 8, 16 or 32 MHz clock. */
-// Note that micros MUST be less than 16384.
+// Note that, for best timing, micros MUST be less than 32768.
 // Since we are counting cycles, if you want the best possible
 // timing you should disable interrupts before calling this.
 // disabling interrupts inside this won't really help because
@@ -306,19 +306,19 @@ void delayMicroseconds(unsigned int microsecs)
                         // call takes 3 cycles.
     "sbiw %0, 0\n\t"  // 2 cycles (if the user said 0 micros, we just want to leave immediately"
     "breq 2f\n\t"// 1 cycle (assuming we didn't hit it).
-    "cpi %B0, 0x40\n\t" // 1 cycle (we can't delay for more than 16384us.)
-    "brsh fallback\n\t" // 1 cycle (assuming we didn't hit it).
+    "clr r26\n\t" // 1 cycle we use r26 as the MSB of the loop count.
     "lsl %A0\n\t" // 1 cycle
     "rol %B0\n\t" // 1 cycle
+    "rol r26\n\t" // 1 cycle
     "lsl %A0\n\t" // 1 cycle
-    "rol %B0\n\t" // 1 cycle ~ total shifting time 4 cycles. 
+    "rol %B0\n\t" // 1 cycle 
+    "rol r26\n\t" // 1 cycle ~ total shifting time 6 cycles.
     "sbiw %0, 3\n\t" // 2 cycles (subtract 3 loops to account for overhead.)
+    "sbci r26, 0\n\t"// 1 cycle (carry to MSB)
     "NOP\n\t"
-    "NOP\n\t"
-    "NOP\n\t"
-    "NOP\n\t"     // 4 cycles (so that the overhead rounds to 24 cycles)
+    "NOP\n\t"     // 2 cycles (so that the overhead rounds to 24 cycles)
     "1: sbiw %0,1\n\t" // 2 cycles
-    "NOP\n\t"          // 1 cycle
+    "sbci r26, 0\n\t"  // 1 cycle
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
     "NOP\n\t"          // 1 cycle
