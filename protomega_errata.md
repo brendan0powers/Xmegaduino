@@ -23,3 +23,11 @@ At 8MHz clock speeds, `delayMicroseconds()` is only accurate if the argument is 
 ### pinMode
 
 pinMode has two additional modes, INPUT_PULLUP and INPUT_PULLDOWN. These options will enable the pull-up, or pull-down resistor on the input pin. You can still enable the pull up resistor by setting the pin mode to INPUT, and then running ditigalWrite(pin, HIGH).
+
+## `pulseIn`
+
+This should be more accurate than the regular Arduino.  Like the regular Arduino, it only works if you call it around 10 microseconds before you expect the pulse.
+
+### Notes for advanced users.
+
+Like the `delayMicroseconds` call, this uses a clock-counting strategy.  This means it works best with interrupts off (i.e., calling the `cli()` function).  The result will only be accurate if your system runs at a clock speed that is a power of two in MHz, e.g. 32MHz or 16MHz.
