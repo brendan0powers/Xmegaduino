@@ -506,6 +506,9 @@ void init()
         TCF1.CTRLD    = TC_EVACT_UPDOWN_gc | TC1_EVDLY_bm;
         TCF1.INTCTRLA = TC_OVFINTLVL_HI_gc;
 #else // PROTOMEGA_TIMING is defined.
+        // port C pwm uses EVCH7 for a div128 prescaled clock.
+        EVSYS.CH7MUX = EVSYS_CHMUX_PRESCALER_128_gc;
+
         TIMER.CTRLA  = TIMER_CTRLA;
         TIMER.PERBUF = TIMER_PERIOD;
         TIMER.CTRLB    = ( TIMER.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
