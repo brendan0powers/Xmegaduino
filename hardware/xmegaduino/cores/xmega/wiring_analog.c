@@ -61,6 +61,31 @@ int analogRead12(uint8_t pin)
 
     pin = adcToChannel(pin);
 
+#ifdef PROTOMEGA_ADC
+    adc->CTRLB |= 16; //Signed Mode
+
+    if(analog_reference == DEFAULT)
+    {
+        adc->REFCTRL     = ADC_REFSEL_VCCDIV2_gc; //VCC/2
+        adc->CH0.CTRL    = ADC_CH_GAIN_DIV2_gc | ADC_CH_INPUTMODE_DIFFWGAIN_gc;
+    }
+    else
+    {
+        adc->REFCTRL     = analog_reference << ADC_REFSEL_gp;
+        adc->CH0.CTRL    = ADC_CH_GAIN_1X_gc | ADC_CH_INPUTMODE_DIFFWGAIN_gc;
+    }
+    
+    adc->CH0.MUXCTRL = pin << ADC_CH_MUXPOS_gp | 4; // Select pin for positive input
+    
+    adc->CH0.CTRL |= ADC_CH_START_bm; // Start conversion
+    while ( 0 == (adc->CH0.INTFLAGS & ADC_CH_CHIF_bm) ); // wait for adc to finish
+    adc->CH0.INTFLAGS = 1;
+
+    int16_t result = adc->CH0RES;
+    if(result < 0) result = 0; //TODO: Actually test this against know voltages, and perhaps add an offset
+
+    return result << 1;
+#else
     adc->REFCTRL     = analog_reference << ADC_REFSEL_gp;
     adc->CH0.MUXCTRL = pin << ADC_CH_MUXPOS_gp; // Select pin for positive input
 
@@ -71,6 +96,7 @@ int analogRead12(uint8_t pin)
     uint16_t result = adc->CH0RES;
 
     return result;
+#endif
 }
 
 int analogRead(uint8_t pin)

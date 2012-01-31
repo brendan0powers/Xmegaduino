@@ -43,14 +43,23 @@ extern "C"{
 #define LEVEL   3
 #define CHANGE  4
 
-#define AREF_INTERNAL   0
-#define AREF_VCC        1
-#define AREF_EXTERNAL_A 2
-#define AREF_EXTERNAL_B 3
+#define AREF_INTERNAL   ADC_REFSEL_INT1V_gc
+#define AREF_VCC        ADC_REFSEL_VCC_gc
+#define AREF_EXTERNAL_A ADC_REFSEL_AREFA_gc
+#define AREF_EXTERNAL_B ADC_REFSEL_AREFB_gc
+
+#ifdef PROTOMEGA_ADC
+#define AREF_VCC2V	ADC_REFSEL_VCCDIV2_gc
+
+#define INTERNAL   AREF_INTERNAL
+#define DEFAULT    AREF_VCC2V
+#define EXTERNAL   AREF_EXTERNAL_A
+#else
 
 #define INTERNAL   AREF_INTERNAL
 #define DEFAULT    AREF_VCC
 #define EXTERNAL   AREF_EXTERNAL_A
+#endif
 
 // undefine stdlib's abs if encountered
 #ifdef abs
