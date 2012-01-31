@@ -31,3 +31,11 @@ This should be more accurate than the regular Arduino.  Like the regular Arduino
 ### Notes for advanced users.
 
 Like the `delayMicroseconds` call, this uses a clock-counting strategy.  This means it works best with interrupts off (i.e., calling the `cli()` function).  The result will only be accurate if your system runs at a clock speed that is a power of two in MHz, e.g. 32MHz or 16MHz.
+
+## `tone()` `noTone()`
+
+These work just like on the regular arduino, except they don't affect any of the pwm channels.  
+
+### Notes for advanced users.
+
+Like the regular arduino, the tone() function is interrupt-based.  We use the timer `TCC1` for the protomega, which is not used by any other function.  This means the timing isn't very accurate and won't work if interrupts are disabled.  I plan to make a more precise tone generation library that will be tied to specific pins and will use waveform generation and will have support for up to four concurrent tones.
