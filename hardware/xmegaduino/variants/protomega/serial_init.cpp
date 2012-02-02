@@ -32,7 +32,7 @@ ISR(USART##usart_port##port_nr##_RXC_vect) \
 } \
 HardwareSerial name (&name##rx_buffer, &USART##usart_port##port_nr, &PORT##usart_port, (port_nr ? PIN6_bm : PIN2_bm), (port_nr ? PIN7_bm : PIN3_bm));
 
-SERIAL_DEFINE(Serial, C, 1);
-SERIAL_DEFINE(Serial1, C, 0);
-SERIAL_DEFINE(Serial2, D, 0);
-SERIAL_DEFINE(Serial4, E, 0);
+SERIAL_DEFINE(Serial, E, 0);
+SERIAL_DEFINE(Serial1, D, 0);
+SERIAL_DEFINE(Serial2, C, 1);
+SERIAL_DEFINE(Serial4, C, 0);
