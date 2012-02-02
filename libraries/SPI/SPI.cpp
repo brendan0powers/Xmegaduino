@@ -31,31 +31,30 @@ void SPIClass::begin() {
   // Warning: if the SS pin ever becomes a LOW INPUT then SPI 
   // automatically switches to Slave, so the data direction of 
   // the SS pin MUST be kept as OUTPUT.
-  SPCR |= _BV(MSTR);
-  SPCR |= _BV(SPE);
+  SPIC.CTRL = SPI_MASTER_bm;
+  SPIC.CTRL |= SPI_ENABLE_bm;
 }
 
 void SPIClass::end() {
-  SPCR &= ~_BV(SPE);
+  SPIC.CTRL &= ~SPI_ENABLE_bm;
 }
 
 void SPIClass::setBitOrder(uint8_t bitOrder)
 {
   if(bitOrder == LSBFIRST) {
-    SPCR |= _BV(DORD);
+    SPIC.CTRL |= SPI_DORD_bm;
   } else {
-    SPCR &= ~(_BV(DORD));
+    SPIC.CTRL &= ~SPI_DORD_bm;
   }
 }
 
 void SPIClass::setDataMode(uint8_t mode)
 {
-  SPCR = (SPCR & ~SPI_MODE_MASK) | mode;
+  SPIC.CTRL = (SPIC.CTRL & ~SPI_MODE_gm) | mode;
 }
 
 void SPIClass::setClockDivider(uint8_t rate)
 {
-  SPCR = (SPCR & ~SPI_CLOCK_MASK) | (rate & SPI_CLOCK_MASK);
-  SPSR = (SPSR & ~SPI_2XCLOCK_MASK) | ((rate >> 2) & SPI_2XCLOCK_MASK);
+  SPIC.CTRL = (SPIC.CTRL & ~(SPI_PRESCALER_gm | SPI_CLK2X_bm)) | rate;
 }
 
