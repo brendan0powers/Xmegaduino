@@ -132,6 +132,7 @@ extern const uint16_t PROGMEM port_to_PGM[];
 extern const uint8_t PROGMEM digital_pin_to_port_PGM[];
 // extern const uint8_t PROGMEM digital_pin_to_bit_PGM[];
 extern const uint8_t PROGMEM digital_pin_to_bit_mask_PGM[];
+extern const uint8_t PROGMEM digital_pin_to_dac_PGM[];
 extern const uint8_t PROGMEM digital_pin_to_timer_PGM[];
 extern const TC0_t* PROGMEM timer_to_tc0_PGM[];
 extern const TC1_t* PROGMEM timer_to_tc1_PGM[];
@@ -149,6 +150,7 @@ extern const uint8_t PROGMEM adc_to_channel_PGM[];
 //
 #define digitalPinToPort(P) ( pgm_read_byte( digital_pin_to_port_PGM + (P) ) )
 #define digitalPinToBitMask(P) ( pgm_read_byte( digital_pin_to_bit_mask_PGM + (P) ) )
+#define digitalPinToDac(P) ( pgm_read_byte( digital_pin_to_dac_PGM + (P) ) )
 #define digitalPinToTimer(P) ( pgm_read_byte( digital_pin_to_timer_PGM + (P) ) )
 #define analogInPinToBit(P) (P)
 #define portRegister(P) ( (volatile PORT_t *)( pgm_read_word( port_to_PGM + (P))) )
@@ -161,6 +163,7 @@ extern const uint8_t PROGMEM adc_to_channel_PGM[];
 #define adcToChannel(P) ( (uint8_t)( pgm_read_word( adc_to_channel_PGM + (P))) )
 
 #define NOT_A_PIN 0
+#define NOT_A_DAC -1
 #define NOT_A_PORT 0
 
 #define PA 1
