@@ -81,7 +81,6 @@ const uint16_t PROGMEM port_to_PGM[] = {
         (uint16_t) &PORTE,
 };
 
-
 const uint8_t PROGMEM digital_pin_to_port_PGM[] = {
 	// PORTLIST
 	NOT_A_PIN,
@@ -169,6 +168,37 @@ const uint8_t PROGMEM digital_pin_to_timer_PGM[] = {
         NOT_ON_TIMER,
         NOT_ON_TIMER,
         NOT_ON_TIMER,     // A9
+};
+
+
+const uint8_t PROGMEM digital_pin_to_dac_PGM[] = {
+	// PORTLIST
+	NOT_A_DAC,
+	NOT_A_DAC,	// D1
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC, // D8 
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,	// D16
+	1,	// A1
+	0,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,
+	NOT_A_DAC,	// A9	
 };
 
 const TC0_t* PROGMEM timer_to_tc0_PGM[] = {

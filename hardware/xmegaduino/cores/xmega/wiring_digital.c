@@ -30,8 +30,7 @@
 extern uint8_t getBitFromBitField(uint8_t input);
 
 void pinMode(uint8_t pin, uint8_t mode)
-{
-	
+{	
 	uint8_t bitmask = digitalPinToBitMask(pin);
 	uint8_t bit = getBitFromBitField(bitmask);
 	uint8_t portIndex = digitalPinToPort(pin);

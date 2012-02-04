@@ -24,6 +24,7 @@
 
 #include "wiring_private.h"
 #include "pins_arduino.h"
+#include "stddef.h"
 
 #if !defined ADC_CH_MUXPOS_gp
     #define ADC_CH_MUXPOS_gp  ADC_CH_MUXPOS0_bp
@@ -190,6 +191,39 @@ const uint16_t PROGMEM timer_to_channel_register_PGM[] = {
 #endif
 };
 
+uint8_t DAC_CHEN_bm[] = {DAC_CH0EN_bm, DAC_CH1EN_bm};
+uint8_t DAC_CHDATA_offset[] = {offsetof(DAC_t, CH0DATA), offsetof(DAC_t, CH1DATA)};
+#define DAC_DATAMASK 0x0FFF // right-adjusted 12 bit data.
+
+// This function writes to the DAC
+void dacWrite(uint8_t pin, int val)
+{
+  uint8_t dacChannel = digitalPinToDac(pin);
+  
+  // We can't do anything if this is not a dac.
+  if(dacChannel == NOT_A_DAC)
+    return;
+
+  // Set up the DAC registers.
+
+  // Turn off the routing from the DAC to the ADC.
+  // Turn off low-power mode.
+  DACB.CTRLA &= ~(DAC_IDOEN_bm | DAC_LPMODE_bm);
+
+  // Globally enable the dac, and enable the selected output.
+  DACB.CTRLA |= DAC_ENABLE_bm | DAC_CHEN_bm[dacChannel];
+  
+  // Enable both DAC channels (note: this is a bit wasteful, power-wise)
+  DACB.CTRLB = DAC_CHSEL_DUAL_gc;
+
+  // Use VCC as the reference, right-adjust the DAC registers
+  DACB.CTRLC = DAC_REFSEL_AVCC_gc;
+
+  // Finally we can write the data!
+  uint16_t* dataRegister = (uint16_t*) ((uint8_t*)(&DACB) + DAC_CHDATA_offset[dacChannel]);
+  *dataRegister = val & DAC_DATAMASK;
+}
+
 #define timerToChannelRegister(T) ( (volatile uint16_t *)( pgm_read_word( timer_to_channel_register_PGM + (T))) )
 
 // TODO: Add pwm12, pwm16, and pwm24.
@@ -200,6 +234,16 @@ const uint16_t PROGMEM timer_to_channel_register_PGM[] = {
 // to digital output.
 void analogWrite(uint8_t pin, int val)
 {
+    // use the separate dacWrite function if this is a pin with a DAC.
+    if(digitalPinToDac(pin) != NOT_A_DAC)
+    {
+      // convert the 8 bit val to 12 bit.
+      int val12bit = val << 4;
+      
+      dacWrite(pin, val12bit);
+      return;
+    }
+
     uint8_t            timer            = digitalPinToTimer(pin);
     TC0_t*             tc0              = (TC0_t*)timerToTC0(timer);
     TC1_t*             tc1              = (TC1_t*)timerToTC1(timer);
