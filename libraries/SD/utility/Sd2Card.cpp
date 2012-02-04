@@ -20,73 +20,16 @@
 #include <Arduino.h>
 #include "Sd2Card.h"
 //------------------------------------------------------------------------------
-#ifndef SOFTWARE_SPI
-// functions for hardware SPI
 /** Send a byte to the card */
 static void spiSend(uint8_t b) {
-  SPDR = b;
-  while (!(SPSR & (1 << SPIF)));
+  SPIC.DATA = b;
+  while (!(SPIC.STATUS & SPI_IF_bm));
 }
 /** Receive a byte from the card */
 static  uint8_t spiRec(void) {
   spiSend(0XFF);
-  return SPDR;
+  return SPIC.DATA;
 }
-#else  // SOFTWARE_SPI
-//------------------------------------------------------------------------------
-/** nop to tune soft SPI timing */
-#define nop asm volatile ("nop\n\t")
-//------------------------------------------------------------------------------
-/** Soft SPI receive */
-uint8_t spiRec(void) {
-  uint8_t data = 0;
-  // no interrupts during byte receive - about 8 us
-  cli();
-  // output pin high - like sending 0XFF
-  fastDigitalWrite(SPI_MOSI_PIN, HIGH);
-
-  for (uint8_t i = 0; i < 8; i++) {
-    fastDigitalWrite(SPI_SCK_PIN, HIGH);
-
-    // adjust so SCK is nice
-    nop;
-    nop;
-
-    data <<= 1;
-
-    if (fastDigitalRead(SPI_MISO_PIN)) data |= 1;
-
-    fastDigitalWrite(SPI_SCK_PIN, LOW);
-  }
-  // enable interrupts
-  sei();
-  return data;
-}
-//------------------------------------------------------------------------------
-/** Soft SPI send */
-void spiSend(uint8_t data) {
-  // no interrupts during byte send - about 8 us
-  cli();
-  for (uint8_t i = 0; i < 8; i++) {
-    fastDigitalWrite(SPI_SCK_PIN, LOW);
-
-    fastDigitalWrite(SPI_MOSI_PIN, data & 0X80);
-
-    data <<= 1;
-
-    fastDigitalWrite(SPI_SCK_PIN, HIGH);
-  }
-  // hold SCK high for a few ns
-  nop;
-  nop;
-  nop;
-  nop;
-
-  fastDigitalWrite(SPI_SCK_PIN, LOW);
-  // enable interrupts
-  sei();
-}
-#endif  // SOFTWARE_SPI
 //------------------------------------------------------------------------------
 // send command and return error code.  Return zero for OK
 uint8_t Sd2Card::cardCommand(uint8_t cmd, uint32_t arg) {
@@ -220,19 +163,18 @@ uint8_t Sd2Card::init(uint8_t sckRateID, uint8_t chipSelectPin) {
   // set pin modes
   pinMode(chipSelectPin_, OUTPUT);
   chipSelectHigh();
-  pinMode(SPI_MISO_PIN, INPUT);
-  pinMode(SPI_MOSI_PIN, OUTPUT);
-  pinMode(SPI_SCK_PIN, OUTPUT);
+  pinMode(SCK, OUTPUT);
+  pinMode(MOSI, OUTPUT);
+  pinMode(SS, OUTPUT);
 
-#ifndef SOFTWARE_SPI
-  // SS must be in output mode even it is not chip select
-  pinMode(SS_PIN, OUTPUT);
-  digitalWrite(SS_PIN, HIGH); // disable any SPI device using hardware SS pin
-  // Enable SPI, Master, clock rate f_osc/128
-  SPCR = (1 << SPE) | (1 << MSTR) | (1 << SPR1) | (1 << SPR0);
-  // clear double speed
-  SPSR &= ~(1 << SPI2X);
-#endif  // SOFTWARE_SPI
+  digitalWrite(SCK, LOW);
+  digitalWrite(MOSI, LOW);
+  digitalWrite(SS, HIGH);
+
+  SPIC.CTRL = SPI_MASTER_bm;
+  SPIC.CTRL |= SPI_ENABLE_bm;
+
+  SPIC.CTRL = (SPIC.CTRL & ~(SPI_PRESCALER_gm | SPI_CLK2X_bm)) | SPI_PRESCALER_DIV128_gc;
 
   // must supply min of 74 clock cycles with CS high.
   for (uint8_t i = 0; i < 10; i++) spiSend(0XFF);
@@ -280,11 +222,7 @@ uint8_t Sd2Card::init(uint8_t sckRateID, uint8_t chipSelectPin) {
   }
   chipSelectHigh();
 
-#ifndef SOFTWARE_SPI
   return setSckRate(sckRateID);
-#else  // SOFTWARE_SPI
-  return true;
-#endif  // SOFTWARE_SPI
 
  fail:
   chipSelectHigh();
@@ -356,23 +294,23 @@ uint8_t Sd2Card::readData(uint32_t block,
 
 #ifdef OPTIMIZE_HARDWARE_SPI
   // start first spi transfer
-  SPDR = 0XFF;
+  SPIC.DATA = 0XFF;
 
   // skip data before offset
   for (;offset_ < offset; offset_++) {
-    while (!(SPSR & (1 << SPIF)));
-    SPDR = 0XFF;
+    while (!(SPIC.STATUS & SPI_IF_bm));
+    SPIC.DATA = 0XFF;
   }
   // transfer data
   n = count - 1;
   for (uint16_t i = 0; i < n; i++) {
-    while (!(SPSR & (1 << SPIF)));
-    dst[i] = SPDR;
-    SPDR = 0XFF;
+    while (!(SPIC.STATUS & SPI_IF_bm));
+    dst[i] = SPIC.DATA;
+    SPIC.DATA = 0XFF;
   }
   // wait for last byte
-  while (!(SPSR & (1 << SPIF)));
-  dst[n] = SPDR;
+  while (!(SPIC.STATUS & SPI_IF_bm));
+  dst[n] = SPIC.DATA;
 
 #else  // OPTIMIZE_HARDWARE_SPI
 
@@ -404,13 +342,13 @@ void Sd2Card::readEnd(void) {
       // skip data and crc
 #ifdef OPTIMIZE_HARDWARE_SPI
     // optimize skip for hardware
-    SPDR = 0XFF;
+    SPIC.DATA = 0XFF;
     while (offset_++ < 513) {
-      while (!(SPSR & (1 << SPIF)));
-      SPDR = 0XFF;
+      while (!(SPIC.STATUS & SPI_IF_bm));
+      SPIC.DATA = 0XFF;
     }
     // wait for last crc byte
-    while (!(SPSR & (1 << SPIF)));
+    while (!(SPIC.STATUS & SPI_IF_bm));
 #else  // OPTIMIZE_HARDWARE_SPI
     while (offset_++ < 514) spiRec();
 #endif  // OPTIMIZE_HARDWARE_SPI
@@ -456,15 +394,34 @@ uint8_t Sd2Card::setSckRate(uint8_t sckRateID) {
     error(SD_CARD_ERROR_SCK_RATE);
     return false;
   }
-  // see avr processor datasheet for SPI register bit definitions
-  if ((sckRateID & 1) || sckRateID == 6) {
-    SPSR &= ~(1 << SPI2X);
-  } else {
-    SPSR |= (1 << SPI2X);
+
+#define SPI_SET_RATE(x) SPIC.CTRL = (SPIC.CTRL & ~(SPI_PRESCALER_gm | SPI_CLK2X_bm)) | x;
+
+  switch(sckRateID)
+  {
+	case 0:
+		SPI_SET_RATE(SPI_PRESCALER_DIV4_gc | SPI_CLK2X_bm);
+		break;
+	case 1:
+		SPI_SET_RATE(SPI_PRESCALER_DIV4_gc);
+		break;
+	case 2:
+		SPI_SET_RATE(SPI_PRESCALER_DIV16_gc | SPI_CLK2X_bm);
+		break;
+	case 3:
+		SPI_SET_RATE(SPI_PRESCALER_DIV16_gc);
+		break;
+	case 4:
+		SPI_SET_RATE(SPI_PRESCALER_DIV64_gc | SPI_CLK2X_bm);
+		break;
+	case 5:
+		SPI_SET_RATE(SPI_PRESCALER_DIV64_gc);
+		break;
+	case 6:
+		SPI_SET_RATE(SPI_PRESCALER_DIV128_gc);
+		break;
   }
-  SPCR &= ~((1 <<SPR1) | (1 << SPR0));
-  SPCR |= (sckRateID & 4 ? (1 << SPR1) : 0)
-    | (sckRateID & 2 ? (1 << SPR0) : 0);
+
   return true;
 }
 //------------------------------------------------------------------------------
@@ -557,18 +514,18 @@ uint8_t Sd2Card::writeData(uint8_t token, const uint8_t* src) {
 #ifdef OPTIMIZE_HARDWARE_SPI
 
   // send data - optimized loop
-  SPDR = token;
+  SPIC.DATA = token;
 
   // send two byte per iteration
   for (uint16_t i = 0; i < 512; i += 2) {
-    while (!(SPSR & (1 << SPIF)));
-    SPDR = src[i];
-    while (!(SPSR & (1 << SPIF)));
-    SPDR = src[i+1];
+    while (!(SPIC.STATUS & SPI_IF_bm));
+    SPIC.DATA = src[i];
+    while (!(SPIC.STATUS & SPI_IF_bm));
+    SPIC.DATA = src[i+1];
   }
 
   // wait for last data byte
-  while (!(SPSR & (1 << SPIF)));
+  while (!(SPIC.STATUS & SPI_IF_bm));
 
 #else  // OPTIMIZE_HARDWARE_SPI
   spiSend(token);

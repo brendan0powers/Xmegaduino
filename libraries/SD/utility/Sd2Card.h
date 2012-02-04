@@ -23,65 +23,20 @@
  * \file
  * Sd2Card class
  */
-#include "Sd2PinMap.h"
 #include "SdInfo.h"
+/** Use Optimised SPI */
+#define OPTIMIZE_HARDWARE_SPI
+/** Default SPI SS pin */
+uint8_t const SD_CHIP_SELECT_PIN = 12;
 /** Set SCK to max rate of F_CPU/2. See Sd2Card::setSckRate(). */
 uint8_t const SPI_FULL_SPEED = 0;
 /** Set SCK rate to F_CPU/4. See Sd2Card::setSckRate(). */
 uint8_t const SPI_HALF_SPEED = 1;
 /** Set SCK rate to F_CPU/8. Sd2Card::setSckRate(). */
 uint8_t const SPI_QUARTER_SPEED = 2;
-/**
- * Define MEGA_SOFT_SPI non-zero to use software SPI on Mega Arduinos.
- * Pins used are SS 10, MOSI 11, MISO 12, and SCK 13.
- *
- * MEGA_SOFT_SPI allows an unmodified Adafruit GPS Shield to be used
- * on Mega Arduinos.  Software SPI works well with GPS Shield V1.1
- * but many SD cards will fail with GPS Shield V1.0.
- */
-#define MEGA_SOFT_SPI 0
-//------------------------------------------------------------------------------
-#if MEGA_SOFT_SPI && (defined(__AVR_ATmega1280__)||defined(__AVR_ATmega2560__))
-#define SOFTWARE_SPI
-#endif  // MEGA_SOFT_SPI
-//------------------------------------------------------------------------------
-// SPI pin definitions
-//
-#ifndef SOFTWARE_SPI
-// hardware pin defs
-/**
- * SD Chip Select pin
- *
- * Warning if this pin is redefined the hardware SS will pin will be enabled
- * as an output by init().  An avr processor will not function as an SPI
- * master unless SS is set to output mode.
- */
-/** The default chip select pin for the SD card is SS. */
-uint8_t const  SD_CHIP_SELECT_PIN = SS_PIN;
-// The following three pins must not be redefined for hardware SPI.
-/** SPI Master Out Slave In pin */
-uint8_t const  SPI_MOSI_PIN = MOSI_PIN;
-/** SPI Master In Slave Out pin */
-uint8_t const  SPI_MISO_PIN = MISO_PIN;
-/** SPI Clock pin */
-uint8_t const  SPI_SCK_PIN = SCK_PIN;
-/** optimize loops for hardware SPI */
-#define OPTIMIZE_HARDWARE_SPI
-
-#else  // SOFTWARE_SPI
-// define software SPI pins so Mega can use unmodified GPS Shield
-/** SPI chip select pin */
-uint8_t const SD_CHIP_SELECT_PIN = 10;
-/** SPI Master Out Slave In pin */
-uint8_t const SPI_MOSI_PIN = 11;
-/** SPI Master In Slave Out pin */
-uint8_t const SPI_MISO_PIN = 12;
-/** SPI Clock pin */
-uint8_t const SPI_SCK_PIN = 13;
-#endif  // SOFTWARE_SPI
 //------------------------------------------------------------------------------
 /** Protect block zero from write if nonzero */
-#define SD_PROTECT_BLOCK_ZERO 1
+//#define SD_PROTECT_BLOCK_ZERO 1
 /** init timeout ms */
 uint16_t const SD_INIT_TIMEOUT = 2000;
 /** erase timeout ms */
