@@ -30,7 +30,7 @@ void W5100Class::init(void)
   SPI.begin();
   initSS();
   
-  writeMR(1<<RST);
+  writeMR(1<<RST_BIT);
   writeTMSR(0x55);
   writeRMSR(0x55);
 

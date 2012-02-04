@@ -307,7 +307,7 @@ public:
 
 
 private:
-  static const uint8_t  RST = 7; // Reset BIT
+  static const uint8_t  RST_BIT = 7; // Reset BIT
 
   static const int SOCKETS = 4;
   static const uint16_t SMASK = 0x07FF; // Tx buffer MASK
@@ -320,19 +320,9 @@ private:
   uint16_t RBASE[SOCKETS]; // Rx buffer base address
 
 private:
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-  inline static void initSS()    { DDRB  |=  _BV(4); };
-  inline static void setSS()     { PORTB &= ~_BV(4); };
-  inline static void resetSS()   { PORTB |=  _BV(4); };
-#elif defined(__AVR_ATmega32U4__) || defined(__AVR_AT90USB1286__) || defined(__AVR_AT90USB646__) || defined(__AVR_AT90USB162__)
-  inline static void initSS()    { DDRB  |=  _BV(0); };
-  inline static void setSS()     { PORTB &= ~_BV(0); };
-  inline static void resetSS()   { PORTB |=  _BV(0); }; 
-#else
-  inline static void initSS()    { DDRB  |=  _BV(2); };
-  inline static void setSS()     { PORTB &= ~_BV(2); };
-  inline static void resetSS()   { PORTB |=  _BV(2); };
-#endif
+  inline static void initSS()    {pinMode(12,INPUT);}
+  inline static void setSS()     {digitalWrite(12,LOW);}
+  inline static void resetSS()   {digitalWrite(12,HIGH);}
 
 };
 
