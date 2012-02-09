@@ -21,7 +21,6 @@
 #define HardwareSerial_h
 
 #include <inttypes.h>
-#include "pins_arduino.h" // for XMEGA_USB
 
 #include "Stream.h"
 

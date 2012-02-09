@@ -28,7 +28,6 @@
 
 #define PROTOMEGA_TIMING // Use protmega mode for millis etc.
 #define PROTOMEGA_ADC
-#define XMEGA_USB // we have a usb controller.
 
 #define REPEAT8(x) x, x, x, x, x, x, x, x
 #define BV0TO7 _BV(0), _BV(1), _BV(2), _BV(3), _BV(4), _BV(5), _BV(6), _BV(7)

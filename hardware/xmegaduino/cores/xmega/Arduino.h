@@ -227,7 +227,7 @@ extern const uint8_t PROGMEM adc_to_channel_PGM[];
 #include "WCharacter.h"
 #include "WString.h"
 #include "HardwareSerial.h"
-#ifdef XMEGA_USB
+#ifdef USB
   #include "USBAPI.h"
 #endif
 
