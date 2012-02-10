@@ -178,14 +178,23 @@ static inline void ReadyForNextPacket(uint8_t, InOrOut inOut)
   }
   else
   {
-    ep_data_ptr[endpoint].in = 0;
     endpoints[ep].in.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
-    // we don't have anything queued for the next send yet.
-    endpoints[ep].in.CNT = 0;
+    ep_data_ptr[endpoint].in = 0;
   }
 }
 
-void USB_Init(void)
+void InitControlEP()
+{
+	/* Configure Control Endpoint */
+	endpoints[0].out.STATUS = 0;
+	endpoints[0].out.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
+	endpoints[0].out.DATAPTR = (unsigned) &ep0_buf_out;
+	endpoints[0].in.STATUS = USB_EP_BUSNACK0_bm;
+	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
+	endpoints[0].in.DATAPTR = (unsigned) &ep0_buf_in;
+}
+
+void USB_Init()
 {
 	_timeout = 0;
 	_usbConfiguration = 0;
@@ -213,17 +222,18 @@ void USB_Init(void)
 	//Reset the USB address
 	USB.ADDR = 0;
 	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
-	
-	/* Configure Control Endpoint */
-	endpoints[0].out.STATUS = 0;
-	endpoints[0].out.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EP_size_to_gc(USB_EP0SIZE);
-	endpoints[0].out.DATAPTR = (unsigned) &ep0_buf_out;
-	endpoints[0].in.STATUS = USB_EP_BUSNACK0_bm;
-	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EP_size_to_gc(USB_EP0SIZE);
-	endpoints[0].in.DATAPTR = (unsigned) &ep0_buf_in;
-	
+
+    InitControlEP();
+
 	// Enable USB, Full speed mode, with USB_NUM_EP endpoints
 	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | (USB_NUM_EP - 1);
+
+    // we need the following interrupts:
+    // - setup transaction complete
+    // - Start of frame
+    // - Reset
+    USB.INTCTRLA = USB_SOFIE_bm | BUSEVIE |  USB_INTLVL_LO_gc; // low priority.
+    USB.INTCTRLB = USB_SETUPIE_bm;
 }
 
 
@@ -256,8 +266,8 @@ static inline void Send8(uint8_t ep, uint8_t d)
 {
   ep_bufs[ep].in[ep_data_ptr[ep].in++] = d;
   
-  // mark that there's another byte
-  endpoints[ep].in.CNT++;
+  // mark that there's another byte in the buffer.
+  endpoints[ep].in.CNT = ep_data_ptr[ep].in;
 }
 
 // this is the number of bytes that remain on an endpoint.
@@ -580,129 +590,131 @@ bool SendDescriptor(Setup& setup)
 	return true;
 }
 
-//	Endpoint 0 interrupt
-ISR(USB_COM_vect)
+// this interrupt is fired when a transaction is complete.
+ISR(USB_TRNCOMPL_vect)
 {
-    SetEP(0);
-	if (!ReceivedSetupInt())
-		return;
+  // we only need to do something here if 
+  // we got a setup packet on EP 0.
+  if(!WasSetupReceived(0))
+    return;
 
-	Setup setup;
-	Recv((uint8_t*)&setup,8);
-	ClearSetupInt();
+  // grab the setup data.
+  Setup setup;
+  Recv(0, (uint8_t*)&setup,8);
 
-	uint8_t requestType = setup.bmRequestType;
-	if (requestType & REQUEST_DEVICETOHOST)
-		WaitIN(0);
-	else
-		ClearIN(0);
+  // clear the flag for next time.
+  ClearSetupReceived(0);
+  ReadyForNextPacket(0, kOut);
 
-    bool ok = true;
-	if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
-	{
-		//	Standard Requests
-		uint8_t r = setup.bRequest;
-		if (GET_STATUS == r)
-		{
-			Send8(0);		// TODO
-			Send8(0);
-		}
-		else if (CLEAR_FEATURE == r)
-		{
-		}
-		else if (SET_FEATURE == r)
-		{
-		}
-		else if (SET_ADDRESS == r)
-		{
-			WaitIN(0);
-			UDADDR = setup.wValueL | (1<<ADDEN);
-		}
-		else if (GET_DESCRIPTOR == r)
-		{
-			ok = SendDescriptor(setup);
-		}
-		else if (SET_DESCRIPTOR == r)
-		{
-			ok = false;
-		}
-		else if (GET_CONFIGURATION == r)
-		{
-			Send8(1);
-		}
-		else if (SET_CONFIGURATION == r)
-		{
-			if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
-			{
-				InitEndpoints();
-				_usbConfiguration = setup.wValueL;
-			} else
-				ok = false;
-		}
-		else if (GET_INTERFACE == r)
-		{
-		}
-		else if (SET_INTERFACE == r)
-		{
-		}
+  uint8_t requestType = setup.bmRequestType;
+  if (requestType & REQUEST_DEVICETOHOST)
+    WaitForTransactionComplete(0, kIn);
+  else
+      ReadyForNextPacket(ep, kIn);
+
+  bool ok = true;
+  if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
+  {
+    //	Standard Requests
+    uint8_t r = setup.bRequest;
+    if (GET_STATUS == r)
+    {
+      Send8(0);		// TODO
+      Send8(0);
+    }
+    else if (CLEAR_FEATURE == r) {}
+	else if (SET_FEATURE == r) {}
+	else if (SET_ADDRESS == r)
+    {
+      WaitForTransactionComplete(0, kIn);
+      USB.ADDR = setup.wValueL;
+    }
+    else if (GET_DESCRIPTOR == r)
+    {
+      ok = SendDescriptor(setup);
 	}
-	else
+	else if (SET_DESCRIPTOR == r)
 	{
-		InitControl(setup.wLength);		//	Max length of transfer
-		ok = ClassInterfaceRequest(setup);
+		ok = false;
 	}
+	else if (GET_CONFIGURATION == r)
+	{
+      Send8(0, 1);
+	}
+    else if (SET_CONFIGURATION == r)
+    {
+      if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
+      {
+        InitEndpoints();
+        _usbConfiguration = setup.wValueL;
+      } else
+        ok = false;
+    }
+    else if (GET_INTERFACE == r) {}
+    else if (SET_INTERFACE == r) {}
+  }
+  else
+  {
+    InitControl(setup.wLength);		//	Max length of transfer
+    ok = ClassInterfaceRequest(setup);
+  }
 
-	if (ok)
-		ClearIN(0);
-	else
-	{
-		Stall();
-	}
+  if (ok)
+    // send the next in packet.
+    ReadyForNextPacket(0, kIn);
+  else
+    Stall(0);
 }
 
+// actually sends out the stuff in the in buffer
 void USB_Flush(uint8_t ep)
 {
-	SetEP(ep);
-	if (RxBytesLeft())
-		ReleaseTX();
+  ReadyForNextPacket(ep, kIn);
 }
 
-//	General interrupt
-ISR(USB_GEN_vect)
+uint16_t LastFrameNumber()
 {
-	uint8_t udint = UDINT;
-	UDINT = 0;
+  // frame number count is after all of the endpoint buffers.
+  return (uint16_t*)(&endpoints[USB_NUM_EP]);
+}
 
-	//	End of Reset
-	if (udint & (1<<EORSTI))
-	{
-		InitEP(0,EP_TYPE_CONTROL,EP_SINGLE_64);	// init ep0
-		_usbConfiguration = 0;			// not configured yet
-		UEIENX = 1 << RXSTPE;			// Enable interrupts for ep0
-	}
+// this is called on bus events.  we only care about start-of-frame and
+// reset.
+ISR(USB_BUSEVENT_vect)
+{
+  uint8_t intFlags = USB.INTFLAGSASET;
+  USB.INTFLAGSACLR = 0xFF; // clear all interrupt flags.
+  //	End of Reset
+  if (intFlags & USB_RSTIF_bm)
+  {
+    InitControlEP();
+	_usbConfiguration = 0;			// not configured yet
+  }
 
-	//	Start of Frame - happens every millisecond so we use it for TX and RX LED one-shot timing, too
-	if (udint & (1<<SOFI))
-	{
+  //	Start of Frame - happens every millisecond so we use it for TX and RX LED one-shot timing, too
+  if(intFlags & USB_SOFIF_bm)
+  {
 #ifdef CDC_ENABLED
-		USB_Flush(CDC_TX);				// Send a tx frame if found
+	USB_Flush(CDC_TX);				// Send a tx frame if found
 #endif
-		
-		// check whether the one-shot period has elapsed.  if so, turn off the LED
-		if (TxLEDPulse && !(--TxLEDPulse))
-			TXLED0;
-		if (RxLEDPulse && !(--RxLEDPulse))
-			RXLED0;
+
+#ifdef USB_LED		
+    // check whether the one-shot period has elapsed.  if so, turn off the LED
+	if (TxLEDPulse && !(--TxLEDPulse))
+		TXLED0;
+	if (RxLEDPulse && !(--RxLEDPulse))
+		RXLED0;
+#endif
 	}
 }
 
 //	VBUS or counting frames
 //	Any frame counting?
-uint8_t USBConnected()
+bool USBConnected()
 {
-	uint8_t f = UDFNUML;
+    uint16_t f = LastFrameNumber();
 	delay(3);
-	return f != UDFNUML;
+	return f != LastFrameNumber();
 }
 
 //=======================================================================
@@ -716,18 +728,10 @@ USB_::USB_()
 
 void USB_::attach()
 {
-	_usbConfiguration = 0;
-    USB_Init();
-	UHWCON = 0x01;						// power internal reg
-	USBCON = (1<<USBE)|(1<<FRZCLK);		// clock frozen, usb enabled
-	PLLCSR = 0x12;						// Need 16 MHz xtal
-	while (!(PLLCSR & (1<<PLOCK)))		// wait for lock pll
-		;
-	USBCON = ((1<<USBE)|(1<<OTGPADE));	// start USB clock
-	UDIEN = (1<<EORSTE)|(1<<SOFE);		// Enable interrupts for EOR (End of Reset) and SOF (start of frame)
-	UDCON = 0;							// enable attach resistor
-	
+  USB_Init();
+  #ifdef USB_LED
 	TX_RX_LED_INIT;
+  #endif
 }
 
 void USB_::detach()
