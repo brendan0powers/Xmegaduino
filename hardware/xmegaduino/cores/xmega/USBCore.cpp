@@ -107,30 +107,20 @@ uint8_t ep_buf_data_ptr[USB_NUM_EP * 2];
 
 volatile uint8_t _usbConfiguration = 0;
 
-static inline void WaitIN(uint8_t endpoint)
+static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
-	while (!(endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm));
+  if(inOut == kIn)
+    return endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
+  else
+    return endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
 }
 
-static inline void ClearIN(uint8_t endpoint)
+static inline void WaitForTransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
-  // to clear this flag you write a 1 to it.  see 20.14.1 in XMEGAAU manual
-  endpoints[endpoint].in.STATUS = USB_EP_TRNCOMPL0_bm;
+  while (!TransactionComplete(endpoint, inOut));
 }
 
-static inline void WaitOUT(uint8_t endpoint)
-{
-	while (!(endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm));
-}
-
-static inline void ClearOUT(uint8_t endpoint)
-{
-  // to clear this flag you write a 1 to it.  see 20.14.1 in XMEGAAU manual
-  endpoints[endpoint].out.STATUS = USB_EP_TRNCOMPL0_bm;
-  ep_data_ptr[endpoint].out = 0;
-}
-
-static inline InOrOut WaitForINOrOUT(uint8_t endpoint)
+static inline InOrOut WaitForEitherInOrOut(uint8_t endpoint)
 {
   while(true)
   {
@@ -141,38 +131,58 @@ static inline InOrOut WaitForINOrOUT(uint8_t endpoint)
   }
 }
 
-static inline bool ReceivedSetupInt(uint8_t ep)
+static inline bool WasSetupReceived(uint8_t ep)
 {
+  // setups are marked on both the in and out registers,
+  // so it doesn't matter which one we grab.
   return endpoints[ep].out.STATUS & USB_EP_SETUP_bm;
 }
 
-static inline void ClearSetupInt(uint8_t ep)
+static inline void ClearSetupReceived(uint8_t ep)
 {
+  // we just have to clear the one we check above in WasSetupReceived.
   endpoints[endpoint].out.STATUS = USB_EP_SETUP_bm;
 }
 
-// static inline void Stall()
-// {
-// 	UECONX = (1<<STALLRQ) | (1<<EPEN);
-// }
-
-// static inline uint8_t Stalled()
-// {
-// 	return UEINTX & (1<<STALLEDI);
-// }
-
-// This throws out our old data and it so we can receive another packet.
-static inline void ReleaseRX(uint8_t ep)
+static inline void Stall(uint8_t ep, InOrOut inOut)
 {
-  ep_data_ptr[endpoint].out = 0;
-  endpoints[ep].out.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+  if(inOut == kIn)
+    endpoints[ep].in.CTRL |= USB_EP_STALL_bm;
+  else
+    endpoints[ep].out.CTRL |= USB_EP_STALL_bm;
 }
 
-// ditto for TX
-static inline void ReleaseTX()
+static inline bool Stalled(uint8_t ep, InOrOut inOut)
 {
-  ep_data_ptr[endpoint].in = 0;
-  endpoints[ep].in.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+  if(inOut == kIn)
+    return endpoints[ep].in.STATUS & USB_EP_STALLF_bm;
+  else
+    return endpoints[ep].out.STATUS & USB_EP_STALLF_bm;
+}
+
+// This has several effects:
+//   - clears the BUSNACK flag - this means that we'll accept the next
+//     packet we receive and therefore our data will be overwritten.
+//     Don't call this unless you're done with all the data in the packet.
+//   - clears the TRNCOMP flag - this means that WaitForTransactionComplete
+//     will wait for the *next* transaction.
+// This is therefore a very important call, because packets will be 
+// dropped until you call this.
+static inline void ReadyForNextPacket(uint8_t, InOrOut inOut)
+{
+  if(inOut == kOut)
+  {
+    ep_data_ptr[endpoint].out = 0;
+    // these are all cleared by writing "1"s to their locations.  weird.
+    endpoints[ep].out.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+  }
+  else
+  {
+    ep_data_ptr[endpoint].in = 0;
+    endpoints[ep].in.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    // we don't have anything queued for the next send yet.
+    endpoints[ep].in.CNT = 0;
+  }
 }
 
 void USB_Init(void)
@@ -245,12 +255,25 @@ static inline uint8_t Recv8(uint8_t ep)
 static inline void Send8(uint8_t ep, uint8_t d)
 {
   ep_bufs[ep].in[ep_data_ptr[ep].in++] = d;
+  
+  // mark that there's another byte
+  endpoints[ep].in.CNT++;
 }
 
 // this is the number of bytes that remain on an endpoint.
-static inline uint8_t RxBytesLeft(uint8_t ep)
+static inline uint8_t BytesLeft(uint8_t ep, InOrOut inOut)
 {
-  uint16_t totalCount = endpoints[ep].out.CNT;
+  // If the transaction isn't complete, there's nothing to read.
+  if(!TransactionComplete(ep, inOut))
+    return 0;
+
+  // we have to subtract off the data pointer.
+  uint16_t totalCount;
+  if(inOut == kOut)
+    totalCount = endpoints[ep].out.CNT;
+  else
+    totalCount = USB_EPSIZE;
+
   return totalCount - ep_data_ptr[ep];
 }
 
@@ -264,26 +287,9 @@ uint8_t USBGetConfiguration(void)
 
 #define USB_RECV_TIMEOUT
 
-
-// TODO - Do we still need to turn off interrupts? this seems crazy.
-class LockEP
-{
-	uint8_t _sreg;
-public:
-	LockEP() : _sreg(SREG)
-	{
-		cli();
-	}
-	~LockEP()
-	{
-		SREG = _sreg;
-	}
-};
-
 //	Number of bytes, assumes a rx endpoint
 uint8_t USB_Available(uint8_t ep)
 {
-	LockEP lock();
 	return RxBytesLeft(ep);
 }
 
@@ -294,15 +300,14 @@ int USB_Recv(uint8_t ep, void* d, int len)
 	if (!_usbConfiguration || len < 0)
 		return -1;
 	
-	LockEP lock();
-	uint8_t n = RxBytesLeft(ep);
+	uint8_t n = BytesLeft(ep, kOut);
 	len = min(n,len);
 	n = len;
 	uint8_t* dst = (uint8_t*)d;
 	while (n--)
 		*dst++ = Recv8(ep);
-	if (len && !RxBytesLeft(ep))	// release empty buffer
-		ReleaseRX(ep);
+	if (len && (BytesLeft(ep, kOut) == 0))	// if there's no bytes left, we're done.
+      ReadyForNextPacket(ep, kOut);
 	
 	return len;
 }
@@ -319,8 +324,7 @@ int USB_Recv(uint8_t ep)
 //	Space in send EP
 uint8_t USB_SendSpace(uint8_t ep)
 {
-	LockEP lock();
-	return USB_EPSize - RxBytesLeft(ep);
+  return USB_EPSIZE - BytesLeft(ep, kIn);
 }
 
 //	Blocking Send of data to an endpoint
@@ -348,7 +352,6 @@ int USB_Send(uint8_t ep, const void* d, int len)
 			n = len;
 		len -= n;
 		{
-			LockEP lock();
 			if (ep & TRANSFER_ZERO)
 			{
 				while (n--)
@@ -365,7 +368,7 @@ int USB_Send(uint8_t ep, const void* d, int len)
                   Send8(ep, *data++);
 			}
 			if ((len == 0) && (ep & TRANSFER_RELEASE))	// Release full buffer
-				ReleaseTX(ep);
+              ReadyForNextPacket(ep, kIn);
 		}
 	}
 
@@ -377,32 +380,40 @@ int USB_Send(uint8_t ep, const void* d, int len)
 	return r;
 }
 
-extern const uint8_t _initEndpoints[] PROGMEM;
-const uint8_t _initEndpoints[] = 
+
+
+extern const InOrOut _initEndpoints[] PROGMEM;
+const InOrOut _initEndpoints[] = 
 {
 	0,
 	
 #ifdef CDC_ENABLED
-	EP_TYPE_INTERRUPT_IN,		// CDC_ENDPOINT_ACM
-	EP_TYPE_BULK_OUT,			// CDC_ENDPOINT_OUT
-	EP_TYPE_BULK_IN,			// CDC_ENDPOINT_IN
+	kIn,		    // CDC_ENDPOINT_ACM
+	kOut,			// CDC_ENDPOINT_OUT
+	kIn,			// CDC_ENDPOINT_IN
 #endif
 
 #ifdef HID_ENABLED
-	EP_TYPE_INTERRUPT_IN		// HID_ENDPOINT_INT
+	kIn		// HID_ENDPOINT_INT
 #endif
 };
 
-#define EP_SINGLE_64 0x32	// EP0
-#define EP_DOUBLE_64 0x36	// Other endpoints
-
 static
-void InitEP(uint8_t index, uint8_t type, uint8_t size)
+void InitEP(uint8_t ep, InOrOut type)
 {
-	UENUM = index;
-	UECONX = 1;
-	UECFG0X = type;
-	UECFG1X = size;
+  if(type == kIn)
+  {
+    endpoints[ep].in.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
+    endpoints[ep].in.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
+    endpoints[ep].in.DATAPTR = ep_bufs[ep].in;
+    endpoints[ep].in.CNT = USB_EPSIZE;
+  }
+  else if(type == kOut)
+  {
+    endpoints[ep].out.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
+    endpoints[ep].out.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
+    endpoints[ep].out.DATAPTR = ep_bufs[ep].out;
+  }
 }
 
 static
@@ -410,13 +421,8 @@ void InitEndpoints()
 {
 	for (uint8_t i = 1; i < sizeof(_initEndpoints); i++)
 	{
-		UENUM = i;
-		UECONX = 1;
-		UECFG0X = pgm_read_byte(_initEndpoints+i);
-		UECFG1X = EP_DOUBLE_64;
+      InitEP(i, pgm_read_byte(_initEndpoints+i));
 	}
-	UERST = 0x7E;	// And reset them
-	UERST = 0;
 }
 
 //	Handle CLASS_INTERFACE requests
@@ -437,25 +443,30 @@ bool ClassInterfaceRequest(Setup& setup)
 	return false;
 }
 
-int _cmark;
-int _cend;
+// This clips the sending of control data.
+// it seems kind of heavy-handed.
+static int _cmark = 0;
+static int _cend = 0;
 void InitControl(int end)
 {
-	SetEP(0);
 	_cmark = 0;
 	_cend = end;
 }
 
+// send control always works on endpoint 0.
+// returns true if we sent it, 
+// returns false if we received something while trying to send.
 static
 bool SendControl(uint8_t d)
 {
 	if (_cmark < _cend)
 	{
-		if (!WaitForINOrOUT())
-			return false;
-		Send8(d);
-		if (!((_cmark + 1) & 0x3F))
-			ClearIN(0);	// Fifo is full, release this packet
+      if(WaitForEitherInOrOut(0) == kIn)
+        return false;
+      Send8(0, d);
+      // if we hit the end of the buffer, send the packet.
+	  if (cmark > USB_EPSIZE)
+        ReadyForNextPacket(0, kIn);
 	}
 	_cmark++;
 	return true;
@@ -481,10 +492,14 @@ int USB_SendControl(uint8_t flags, const void* d, int len)
 //	TODO
 int USB_RecvControl(void* d, int len)
 {
-	WaitOUT();
-	Recv((uint8_t*)d,len);
-	ClearOUT();
-	return len;
+  WaitForTransactionComplete(0, kOut);
+  Recv(0, (uint8_t*)d,len);
+  
+  // ensure that we're ready for the next packet.
+  // this will discard any data outside of "len".
+  ReadyForNextPacket(0, kOut);
+
+  return len;
 }
 
 int SendInterfaces()
@@ -702,6 +717,7 @@ USB_::USB_()
 void USB_::attach()
 {
 	_usbConfiguration = 0;
+    USB_Init();
 	UHWCON = 0x01;						// power internal reg
 	USBCON = (1<<USBE)|(1<<FRZCLK);		// clock frozen, usb enabled
 	PLLCSR = 0x12;						// Need 16 MHz xtal

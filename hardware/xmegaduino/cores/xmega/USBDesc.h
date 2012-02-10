@@ -50,7 +50,11 @@
 #define INTERFACE_COUNT		(HID_INTERFACE + HID_INTERFACE_COUNT)
 
 #define USB_NUM_EP		(HID_FIRST_ENDPOINT + HID_ENDPOINT_COUNT)
+
+// these must be changed together.
 #define USB_EPSIZE		64 // for now, all endpoints have the same size.
+#define USB_EPSIZE_gc   USB_EP_BUFSIZE_64_gc
+
 
 #ifdef CDC_ENABLED
 #define CDC_RX CDC_ENDPOINT_OUT
