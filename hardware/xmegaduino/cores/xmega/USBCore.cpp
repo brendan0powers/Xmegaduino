@@ -53,6 +53,8 @@ const u16 STRING_IPRODUCT[17] = {
 	'A','r','d','u','i','n','o',' ','L','e','o','n','a','r','d','o'
 #elif USB_PID == USB_PID_MICRO
 	'A','r','d','u','i','n','o',' ','M','i','c','r','o',' ',' ',' '
+#else
+	'A','r','d','u','i','n','o',' ','S','o','m','m','a','t',' ',' '
 #endif
 };
 
@@ -77,35 +79,97 @@ const DeviceDescriptor USB_DeviceDescriptorA =
 //==================================================================
 //==================================================================
 
+typedef struct USB_EP_pair{
+	USB_EP_t out;
+	USB_EP_t in;
+} __attribute__ ((packed)) USB_EP_pair_t;
+
+USB_EP_pair_t endpoints[USB_MAXEP+1] __attribute__((aligned(2), section(".usbendpoints")));
+
+uint8_t ep_bufs[USB_MAXEP * 2 * USB_EPSIZE];
+
 volatile u8 _usbConfiguration = 0;
 
-static inline void WaitIN(void)
+static inline void WaitIN(u8 endpoint)
 {
-	while (!(UEINTX & (1<<TXINI)));
+	while (!(endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm));
 }
 
-static inline void ClearIN(void)
+static inline void ClearIN(u8 endpoint)
 {
-	UEINTX = ~(1<<TXINI);
+  // to clear this flag you write a 1 to it.  see 20.14.1 in XMEGAAU manual
+  endpoints[endpoint].in.STATUS = USB_EP_TRNCOMPL0_bm;
 }
 
-static inline void WaitOUT(void)
+static inline void WaitOUT(u8 endpoint)
 {
-	while (!(UEINTX & (1<<RXOUTI)))
-		;
+	while (!(endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm));
 }
 
-static inline u8 WaitForINOrOUT()
+static inline void ClearOUT(u8 endpoint)
 {
-	while (!(UEINTX & ((1<<TXINI)|(1<<RXOUTI))))
-		;
-	return (UEINTX & (1<<RXOUTI)) == 0;
+  // to clear this flag you write a 1 to it.  see 20.14.1 in XMEGAAU manual
+  endpoints[endpoint].out.STATUS = USB_EP_TRNCOMPL0_bm;
 }
 
-static inline void ClearOUT(void)
+enum InOrOut
 {
-	UEINTX = ~(1<<RXOUTI);
+  kIn,
+  kOut
+};
+
+static inline InOrOut WaitForINOrOUT(u8 endpoint)
+{
+  while(true)
+  {
+    if(!(endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm))
+      return kOut;
+    if(!(endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm))
+      return kIn;
+  }
 }
+
+void USB_Init(void)
+{
+	_timeout = 0;
+	_usbConfiguration = 0;
+	_ejected = 0;
+	
+	/* Configure USB clock */
+	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; //Use internal 32khz osc. to calibrate the USB clock
+	//Set calibration bytes for the usb clock
+	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
+	DFLLRC32M.CALB = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBRCOSC));
+	//Set the frequency of the USB osc. to 48MHz
+	DFLLRC32M.COMP1 = 0x1B; //Xmega AU manual, p41
+	DFLLRC32M.COMP2 = 0xB7;
+	DFLLRC32M.CTRL = DFLL_ENABLE_bm; //Enable USB clock
+	
+	//Load USB calibration bytes
+	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
+	USB.CAL0 = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBCAL0));
+	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
+	USB.CAL1 = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBCAL1));
+	
+	//USB clock enabled, high speed mode, uses the 32Mhz DFLL configured above
+	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_RC32M_gc | CLK_USBSEN_bm);
+	
+	//Reset the USB address
+	USB.ADDR = 0;
+	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
+	
+	/* Configure Control Endpoint */
+	endpoints[0].out.STATUS = 0;
+	endpoints[0].out.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EP_size_to_gc(USB_EP0SIZE);
+	endpoints[0].out.DATAPTR = (unsigned) &ep0_buf_out;
+	endpoints[0].in.STATUS = USB_EP_BUSNACK0_bm;
+	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EP_size_to_gc(USB_EP0SIZE);
+	endpoints[0].in.DATAPTR = (unsigned) &ep0_buf_in;
+	
+	// Enable USB, Full speed mode, with USB_MAXEP endpoints
+	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | USB_MAXEP;
+}
+
 
 void Recv(volatile u8* data, u8 count)
 {
@@ -127,11 +191,6 @@ static inline u8 Recv8()
 static inline void Send8(u8 d)
 {
 	UEDATX = d;
-}
-
-static inline void SetEP(u8 ep)
-{
-	UENUM = ep;
 }
 
 static inline u8 FifoByteCount()
@@ -381,7 +440,7 @@ bool SendControl(u8 d)
 			return false;
 		Send8(d);
 		if (!((_cmark + 1) & 0x3F))
-			ClearIN();	// Fifo is full, release this packet
+			ClearIN(0);	// Fifo is full, release this packet
 	}
 	_cmark++;
 	return true;
@@ -504,9 +563,9 @@ ISR(USB_COM_vect)
 
 	u8 requestType = setup.bmRequestType;
 	if (requestType & REQUEST_DEVICETOHOST)
-		WaitIN();
+		WaitIN(0);
 	else
-		ClearIN();
+		ClearIN(0);
 
     bool ok = true;
 	if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
@@ -526,7 +585,7 @@ ISR(USB_COM_vect)
 		}
 		else if (SET_ADDRESS == r)
 		{
-			WaitIN();
+			WaitIN(0);
 			UDADDR = setup.wValueL | (1<<ADDEN);
 		}
 		else if (GET_DESCRIPTOR == r)
@@ -564,7 +623,7 @@ ISR(USB_COM_vect)
 	}
 
 	if (ok)
-		ClearIN();
+		ClearIN(0);
 	else
 	{
 		Stall();
