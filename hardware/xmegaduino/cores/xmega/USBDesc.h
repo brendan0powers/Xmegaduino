@@ -49,7 +49,7 @@
 
 #define INTERFACE_COUNT		(HID_INTERFACE + HID_INTERFACE_COUNT)
 
-#define USB_MAXEP		(HID_FIRST_ENDPOINT + HID_ENDPOINT_COUNT)
+#define USB_NUM_EP		(HID_FIRST_ENDPOINT + HID_ENDPOINT_COUNT)
 #define USB_EPSIZE		64 // for now, all endpoints have the same size.
 
 #ifdef CDC_ENABLED

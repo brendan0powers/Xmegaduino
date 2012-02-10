@@ -20,34 +20,27 @@
 
 #ifdef USB
 
-#define EP_TYPE_CONTROL				0x00
-#define EP_TYPE_BULK_IN				0x81
-#define EP_TYPE_BULK_OUT			0x80
-#define EP_TYPE_INTERRUPT_IN		0xC1
-#define EP_TYPE_INTERRUPT_OUT		0xC0
-#define EP_TYPE_ISOCHRONOUS_IN		0x41
-#define EP_TYPE_ISOCHRONOUS_OUT		0x40
-
-/** Pulse generation counters to keep track of the number of milliseconds remaining for each pulse type */
-#define TX_RX_LED_PULSE_MS 100
-volatile uint8_t TxLEDPulse; /**< Milliseconds remaining for data Tx LED pulse */
-volatile uint8_t RxLEDPulse; /**< Milliseconds remaining for data Rx LED pulse */
+#ifdef USB_LED
+  #define TX_RX_LED_PULSE_MS 100
+  volatile uint8_t TxLEDPulse; /**< Milliseconds remaining for data Tx LED pulse */
+  volatile uint8_t RxLEDPulse; /**< Milliseconds remaining for data Rx LED pulse */
+#endif
 
 //==================================================================
 //==================================================================
 
-extern const u16 STRING_LANGUAGE[] PROGMEM;
-extern const u16 STRING_IPRODUCT[] PROGMEM;
-extern const u16 STRING_IMANUFACTURER[] PROGMEM;
+extern const uint16_t STRING_LANGUAGE[] PROGMEM;
+extern const uint16_t STRING_IPRODUCT[] PROGMEM;
+extern const uint16_t STRING_IMANUFACTURER[] PROGMEM;
 extern const DeviceDescriptor USB_DeviceDescriptor PROGMEM;
 extern const DeviceDescriptor USB_DeviceDescriptorA PROGMEM;
 
-const u16 STRING_LANGUAGE[2] = {
+const uint16_t STRING_LANGUAGE[2] = {
 	(3<<8) | (2+2),
 	0x0409	// English
 };
 
-const u16 STRING_IPRODUCT[17] = {
+const uint16_t STRING_IPRODUCT[17] = {
 	(3<<8) | (2+2*16),
 #if USB_PID == USB_PID_LEONARDO	
 	'A','r','d','u','i','n','o',' ','L','e','o','n','a','r','d','o'
@@ -58,7 +51,7 @@ const u16 STRING_IPRODUCT[17] = {
 #endif
 };
 
-const u16 STRING_IMANUFACTURER[12] = {
+const uint16_t STRING_IMANUFACTURER[12] = {
 	(3<<8) | (2+2*11),
 	'A','r','d','u','i','n','o',' ','L','L','C'
 };
@@ -84,12 +77,33 @@ typedef struct USB_EP_pair{
 	USB_EP_t in;
 } __attribute__ ((packed)) USB_EP_pair_t;
 
-USB_EP_pair_t endpoints[USB_MAXEP+1] __attribute__((aligned(2), section(".usbendpoints")));
+USB_EP_pair_t endpoints[USB_NUM_EP + 1] __attribute__((aligned(2), section(".usbendpoints")));
+
+struct USB_EP_Buffer_Pair
+{
+  uint8_t out[USB_EPSIZE];
+  uint8_t in[USB_EPSIZE];
+};
 
 // this is where we store the data for each endpoint.
-uint8_t ep_bufs[USB_MAXEP * 2 * USB_EPSIZE];
+USB_EP_Buffer_Pair ep_bufs[USB_NUM_EP];
 
-// 
+enum InOrOut
+{
+  kIn,
+  kOut
+};
+
+struct USB_EP_Data_Ptr
+{
+  uint8_t out;
+  uint8_t in;
+};
+
+USB_EP_DATA_Ptr ep_data_ptr[USB_NUM_EP];
+
+// this is where we store how much of the data we've already read
+uint8_t ep_buf_data_ptr[USB_NUM_EP * 2];
 
 volatile uint8_t _usbConfiguration = 0;
 
@@ -113,13 +127,8 @@ static inline void ClearOUT(uint8_t endpoint)
 {
   // to clear this flag you write a 1 to it.  see 20.14.1 in XMEGAAU manual
   endpoints[endpoint].out.STATUS = USB_EP_TRNCOMPL0_bm;
+  ep_data_ptr[endpoint].out = 0;
 }
-
-enum InOrOut
-{
-  kIn,
-  kOut
-};
 
 static inline InOrOut WaitForINOrOUT(uint8_t endpoint)
 {
@@ -130,6 +139,40 @@ static inline InOrOut WaitForINOrOUT(uint8_t endpoint)
     if(!(endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm))
       return kIn;
   }
+}
+
+static inline bool ReceivedSetupInt(uint8_t ep)
+{
+  return endpoints[ep].out.STATUS & USB_EP_SETUP_bm;
+}
+
+static inline void ClearSetupInt(uint8_t ep)
+{
+  endpoints[endpoint].out.STATUS = USB_EP_SETUP_bm;
+}
+
+// static inline void Stall()
+// {
+// 	UECONX = (1<<STALLRQ) | (1<<EPEN);
+// }
+
+// static inline uint8_t Stalled()
+// {
+// 	return UEINTX & (1<<STALLEDI);
+// }
+
+// This throws out our old data and it so we can receive another packet.
+static inline void ReleaseRX(uint8_t ep)
+{
+  ep_data_ptr[endpoint].out = 0;
+  endpoints[ep].out.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+}
+
+// ditto for TX
+static inline void ReleaseTX()
+{
+  ep_data_ptr[endpoint].in = 0;
+  endpoints[ep].in.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
 }
 
 void USB_Init(void)
@@ -169,81 +212,46 @@ void USB_Init(void)
 	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EP_size_to_gc(USB_EP0SIZE);
 	endpoints[0].in.DATAPTR = (unsigned) &ep0_buf_in;
 	
-	// Enable USB, Full speed mode, with USB_MAXEP endpoints
-	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | USB_MAXEP;
+	// Enable USB, Full speed mode, with USB_NUM_EP endpoints
+	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | (USB_NUM_EP - 1);
 }
 
 
-void Recv(volatile uint8_t* data, uint8_t count)
+// this is a low level function that assumes that we are *sure*
+// that there is at least "count" bytes left in the buffer
+// for the associated input.  don't call this unless you're totally
+// sure and you've already checked.
+void Recv(uint8_t ep, volatile uint8_t* outBuf, uint8_t count)
 {
-	while (count--)
-		*data++ = UEDATX;
-	
+  while (count--)
+    *data++ = ep_bufs[ep].out[ep_data_ptr[ep].out++];
+
+#ifdef USB_LED
 	RXLED1;					// light the RX LED
 	RxLEDPulse = TX_RX_LED_PULSE_MS;	
+#endif
 }
 
-static inline uint8_t Recv8()
+static inline uint8_t Recv8(uint8_t ep)
 {
-	RXLED1;					// light the RX LED
-	RxLEDPulse = TX_RX_LED_PULSE_MS;
-
-	return UEDATX;	
+  uint8_t out;
+  Recv(uint8_t ep, &out, 1);
+  return out;
 }
 
-static inline void Send8(uint8_t d)
+// Again, this is a dangerous private call.
+// Do not call this if you aren't sure that you're not overflowing
+// the buffer.
+static inline void Send8(uint8_t ep, uint8_t d)
 {
-	UEDATX = d;
+  ep_bufs[ep].in[ep_data_ptr[ep].in++] = d;
 }
 
-static inline uint8_t FifoByteCount()
+// this is the number of bytes that remain on an endpoint.
+static inline uint8_t RxBytesLeft(uint8_t ep)
 {
-	return UEBCLX;
-}
-
-static inline uint8_t ReceivedSetupInt()
-{
-	return UEINTX & (1<<RXSTPI);
-}
-
-static inline void ClearSetupInt()
-{
-	UEINTX = ~((1<<RXSTPI) | (1<<RXOUTI) | (1<<TXINI));
-}
-
-static inline void Stall()
-{
-	UECONX = (1<<STALLRQ) | (1<<EPEN);
-}
-
-static inline uint8_t ReadWriteAllowed()
-{
-	return UEINTX & (1<<RWAL);
-}
-
-static inline uint8_t Stalled()
-{
-	return UEINTX & (1<<STALLEDI);
-}
-
-static inline uint8_t FifoFree()
-{
-	return UEINTX & (1<<FIFOCON);
-}
-
-static inline void ReleaseRX()
-{
-	UEINTX = 0x6B;	// FIFOCON=0 NAKINI=1 RWAL=1 NAKOUTI=0 RXSTPI=1 RXOUTI=0 STALLEDI=1 TXINI=1
-}
-
-static inline void ReleaseTX()
-{
-	UEINTX = 0x3A;	// FIFOCON=0 NAKINI=0 RWAL=1 NAKOUTI=1 RXSTPI=1 RXOUTI=0 STALLEDI=1 TXINI=0
-}
-
-static inline uint8_t FrameNumber()
-{
-	return UDFNUML;
+  uint16_t totalCount = endpoints[ep].out.CNT;
+  return totalCount - ep_data_ptr[ep];
 }
 
 //==================================================================
@@ -255,14 +263,16 @@ uint8_t USBGetConfiguration(void)
 }
 
 #define USB_RECV_TIMEOUT
+
+
+// TODO - Do we still need to turn off interrupts? this seems crazy.
 class LockEP
 {
 	uint8_t _sreg;
 public:
-	LockEP(uint8_t ep) : _sreg(SREG)
+	LockEP() : _sreg(SREG)
 	{
 		cli();
-		SetEP(ep & 7);
 	}
 	~LockEP()
 	{
@@ -273,8 +283,8 @@ public:
 //	Number of bytes, assumes a rx endpoint
 uint8_t USB_Available(uint8_t ep)
 {
-	LockEP lock(ep);
-	return FifoByteCount();
+	LockEP lock();
+	return RxBytesLeft(ep);
 }
 
 //	Non Blocking receive
@@ -284,15 +294,15 @@ int USB_Recv(uint8_t ep, void* d, int len)
 	if (!_usbConfiguration || len < 0)
 		return -1;
 	
-	LockEP lock(ep);
-	uint8_t n = FifoByteCount();
+	LockEP lock();
+	uint8_t n = RxBytesLeft(ep);
 	len = min(n,len);
 	n = len;
 	uint8_t* dst = (uint8_t*)d;
 	while (n--)
-		*dst++ = Recv8();
-	if (len && !FifoByteCount())	// release empty buffer
-		ReleaseRX();
+		*dst++ = Recv8(ep);
+	if (len && !RxBytesLeft(ep))	// release empty buffer
+		ReleaseRX(ep);
 	
 	return len;
 }
@@ -309,10 +319,8 @@ int USB_Recv(uint8_t ep)
 //	Space in send EP
 uint8_t USB_SendSpace(uint8_t ep)
 {
-	LockEP lock(ep);
-	if (!ReadWriteAllowed())
-		return 0;
-	return 64 - FifoByteCount();
+	LockEP lock();
+	return USB_EPSize - RxBytesLeft(ep);
 }
 
 //	Blocking Send of data to an endpoint
@@ -340,28 +348,32 @@ int USB_Send(uint8_t ep, const void* d, int len)
 			n = len;
 		len -= n;
 		{
-			LockEP lock(ep);
+			LockEP lock();
 			if (ep & TRANSFER_ZERO)
 			{
 				while (n--)
-					Send8(0);
+                  Send8(ep, 0);
 			}
 			else if (ep & TRANSFER_PGM)
 			{
 				while (n--)
-					Send8(pgm_read_byte(data++));
+                  Send8(ep, pgm_read_byte(data++));
 			}
 			else
 			{
 				while (n--)
-					Send8(*data++);
+                  Send8(ep, *data++);
 			}
-			if (!ReadWriteAllowed() || ((len == 0) && (ep & TRANSFER_RELEASE)))	// Release full buffer
-				ReleaseTX();
+			if ((len == 0) && (ep & TRANSFER_RELEASE))	// Release full buffer
+				ReleaseTX(ep);
 		}
 	}
+
+#ifdef USB_LED
 	TXLED1;					// light the TX LED
 	TxLEDPulse = TX_RX_LED_PULSE_MS;
+#endif
+
 	return r;
 }
 
@@ -636,7 +648,7 @@ ISR(USB_COM_vect)
 void USB_Flush(uint8_t ep)
 {
 	SetEP(ep);
-	if (FifoByteCount())
+	if (RxBytesLeft())
 		ReleaseTX();
 }
 
