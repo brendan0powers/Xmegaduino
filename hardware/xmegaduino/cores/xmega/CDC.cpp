@@ -25,18 +25,19 @@
 
 void Reboot()
 {
-	USB.detach();
-	cli();
-	asm volatile("jmp 0x7800");		// jump to bootloader - DiskLoader takes up last 2 kB
+  // TODO - what should we do?
+	// USB.detach();
+	// cli();
+	// asm volatile("jmp 0x7800");		// jump to bootloader - DiskLoader takes up last 2 kB
 }
 
 typedef struct
 {
-	u32	dwDTERate;
-	u8	bCharFormat;
-	u8 	bParityType;
-	u8 	bDataBits;
-	u8	lineState;
+	uint32_t	dwDTERate;
+	uint8_t	bCharFormat;
+	uint8_t 	bParityType;
+	uint8_t 	bDataBits;
+	uint8_t	lineState;
 } LineInfo;
 
 static volatile LineInfo _usbLineInfo = { 57600, 0x00, 0x00, 0x00, 0x00 };
@@ -62,7 +63,7 @@ const CDCDescriptor _cdcInterface =
 	D_ENDPOINT(USB_ENDPOINT_IN (CDC_ENDPOINT_IN ),USB_ENDPOINT_TYPE_BULK,0x40,0)
 };
 
-int WEAK CDC_GetInterface(u8* interfaceNum)
+int WEAK CDC_GetInterface(uint8_t* interfaceNum)
 {
 	interfaceNum[0] += 2;	// uses 2
 	return USB_SendControl(TRANSFER_PGM,&_cdcInterface,sizeof(_cdcInterface));
@@ -70,8 +71,8 @@ int WEAK CDC_GetInterface(u8* interfaceNum)
 
 bool WEAK CDC_Setup(Setup& setup)
 {
-	u8 r = setup.bRequest;
-	u8 requestType = setup.bmRequestType;
+	uint8_t r = setup.bRequest;
+	uint8_t requestType = setup.bmRequestType;
 
 	if (REQUEST_DEVICETOHOST_CLASS_INTERFACE == requestType)
 	{
@@ -113,7 +114,7 @@ void Serial_::end(void)
 
 int Serial_::available(void)
 {
-	u8 avail = USB_Available(CDC_RX);
+	uint8_t avail = USB_Available(CDC_RX);
 	if (_serialPeek != -1)
 		avail++;
 	return avail;
