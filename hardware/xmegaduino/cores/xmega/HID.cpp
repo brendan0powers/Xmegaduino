@@ -20,7 +20,7 @@
 #include "USBAPI.h"
 #include "USBDesc.h"
 
-#if defined(USBCON)
+#if defined(USB)
 #ifdef HID_ENABLED
 
 //#define RAWHID_ENABLED
