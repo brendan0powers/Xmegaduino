@@ -72,4 +72,3 @@
 #define USB_VID 0x2341	// arduino LLC vid
 #define USB_PID	ARDUINO_MODEL_USB_PID 
 
-struct USB_

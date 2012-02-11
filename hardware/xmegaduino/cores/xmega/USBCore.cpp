@@ -17,6 +17,8 @@
 #include "Platform.h"
 #include "USBAPI.h"
 #include "USBDesc.h"
+#include "stddef.h"
+
 
 #ifdef USB
 
@@ -100,7 +102,7 @@ struct USB_EP_Data_Ptr
   uint8_t in;
 };
 
-USB_EP_DATA_Ptr ep_data_ptr[USB_NUM_EP];
+USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
 
 // this is where we store how much of the data we've already read
 uint8_t ep_buf_data_ptr[USB_NUM_EP * 2];
@@ -141,7 +143,7 @@ static inline bool WasSetupReceived(uint8_t ep)
 static inline void ClearSetupReceived(uint8_t ep)
 {
   // we just have to clear the one we check above in WasSetupReceived.
-  endpoints[endpoint].out.STATUS = USB_EP_SETUP_bm;
+  endpoints[ep].out.STATUS = USB_EP_SETUP_bm;
 }
 
 static inline void Stall(uint8_t ep, InOrOut inOut)
@@ -168,18 +170,18 @@ static inline bool Stalled(uint8_t ep, InOrOut inOut)
 //     will wait for the *next* transaction.
 // This is therefore a very important call, because packets will be 
 // dropped until you call this.
-static inline void ReadyForNextPacket(uint8_t, InOrOut inOut)
+static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
 {
   if(inOut == kOut)
   {
-    ep_data_ptr[endpoint].out = 0;
+    ep_data_ptr[ep].out = 0;
     // these are all cleared by writing "1"s to their locations.  weird.
-    endpoints[ep].out.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    endpoints[ep].out.STATUS = USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
   }
   else
   {
-    endpoints[ep].in.STATUS = USB_EP_TRNCOMP0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
-    ep_data_ptr[endpoint].in = 0;
+    endpoints[ep].in.STATUS = USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    ep_data_ptr[ep].in = 0;
   }
 }
 
@@ -188,17 +190,15 @@ void InitControlEP()
 	/* Configure Control Endpoint */
 	endpoints[0].out.STATUS = 0;
 	endpoints[0].out.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
-	endpoints[0].out.DATAPTR = (unsigned) &ep0_buf_out;
+	endpoints[0].out.DATAPTR = (unsigned) ep_bufs[0].out;
 	endpoints[0].in.STATUS = USB_EP_BUSNACK0_bm;
 	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
-	endpoints[0].in.DATAPTR = (unsigned) &ep0_buf_in;
+	endpoints[0].in.DATAPTR = (unsigned) ep_bufs[0].in;
 }
 
 void USB_Init()
 {
-	_timeout = 0;
 	_usbConfiguration = 0;
-	_ejected = 0;
 	
 	/* Configure USB clock */
 	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; //Use internal 32khz osc. to calibrate the USB clock
@@ -231,8 +231,8 @@ void USB_Init()
     // we need the following interrupts:
     // - setup transaction complete
     // - Start of frame
-    // - Reset
-    USB.INTCTRLA = USB_SOFIE_bm | BUSEVIE |  USB_INTLVL_LO_gc; // low priority.
+    // - Reset (encapsulated by BUSEVIE)
+    USB.INTCTRLA = USB_SOFIE_bm | USB_BUSEVIE_bm |  USB_INTLVL_LO_gc; // low priority.
     USB.INTCTRLB = USB_SETUPIE_bm;
 }
 
@@ -244,7 +244,7 @@ void USB_Init()
 void Recv(uint8_t ep, volatile uint8_t* outBuf, uint8_t count)
 {
   while (count--)
-    *data++ = ep_bufs[ep].out[ep_data_ptr[ep].out++];
+    *outBuf++ = ep_bufs[ep].out[ep_data_ptr[ep].out++];
 
 #ifdef USB_LED
 	RXLED1;					// light the RX LED
@@ -255,7 +255,7 @@ void Recv(uint8_t ep, volatile uint8_t* outBuf, uint8_t count)
 static inline uint8_t Recv8(uint8_t ep)
 {
   uint8_t out;
-  Recv(uint8_t ep, &out, 1);
+  Recv(ep, &out, 1);
   return out;
 }
 
@@ -280,11 +280,16 @@ static inline uint8_t BytesLeft(uint8_t ep, InOrOut inOut)
   // we have to subtract off the data pointer.
   uint16_t totalCount;
   if(inOut == kOut)
+  {
     totalCount = endpoints[ep].out.CNT;
+    totalCount -= ep_data_ptr[ep].out;
+  }
   else
+  {
     totalCount = USB_EPSIZE;
-
-  return totalCount - ep_data_ptr[ep];
+    totalCount -= ep_data_ptr[ep].in;
+  }
+  return totalCount;
 }
 
 //==================================================================
@@ -300,7 +305,7 @@ uint8_t USBGetConfiguration(void)
 //	Number of bytes, assumes a rx endpoint
 uint8_t USB_Available(uint8_t ep)
 {
-	return RxBytesLeft(ep);
+  return BytesLeft(ep, kOut);
 }
 
 //	Non Blocking receive
@@ -392,19 +397,19 @@ int USB_Send(uint8_t ep, const void* d, int len)
 
 
 
-extern const InOrOut _initEndpoints[] PROGMEM;
-const InOrOut _initEndpoints[] = 
+extern const uint8_t _initEndpoints[] PROGMEM;
+const uint8_t _initEndpoints[] = 
 {
-	0,
+    0, // endpoint 0 is special and not set-up here.
 	
 #ifdef CDC_ENABLED
-	kIn,		    // CDC_ENDPOINT_ACM
-	kOut,			// CDC_ENDPOINT_OUT
-	kIn,			// CDC_ENDPOINT_IN
+	0,		    // CDC_ENDPOINT_ACM
+	1,			// CDC_ENDPOINT_OUT
+	0,			// CDC_ENDPOINT_IN
 #endif
 
 #ifdef HID_ENABLED
-	kIn		// HID_ENDPOINT_INT
+	0		// HID_ENDPOINT_INT
 #endif
 };
 
@@ -415,14 +420,14 @@ void InitEP(uint8_t ep, InOrOut type)
   {
     endpoints[ep].in.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
     endpoints[ep].in.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
-    endpoints[ep].in.DATAPTR = ep_bufs[ep].in;
+    endpoints[ep].in.DATAPTR = (unsigned) ep_bufs[ep].in;
     endpoints[ep].in.CNT = USB_EPSIZE;
   }
   else if(type == kOut)
   {
     endpoints[ep].out.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
     endpoints[ep].out.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
-    endpoints[ep].out.DATAPTR = ep_bufs[ep].out;
+    endpoints[ep].out.DATAPTR = (unsigned) ep_bufs[ep].out;
   }
 }
 
@@ -431,7 +436,7 @@ void InitEndpoints()
 {
 	for (uint8_t i = 1; i < sizeof(_initEndpoints); i++)
 	{
-      InitEP(i, pgm_read_byte(_initEndpoints+i));
+      InitEP(i, pgm_read_byte(_initEndpoints+i) ? kOut : kIn);
 	}
 }
 
@@ -475,7 +480,7 @@ bool SendControl(uint8_t d)
         return false;
       Send8(0, d);
       // if we hit the end of the buffer, send the packet.
-	  if (cmark > USB_EPSIZE)
+	  if (_cmark > USB_EPSIZE)
         ReadyForNextPacket(0, kIn);
 	}
 	_cmark++;
