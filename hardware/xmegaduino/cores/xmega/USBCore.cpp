@@ -101,25 +101,39 @@ struct USB_EP_Data_Ptr
   uint8_t out;
   uint8_t in;
 };
-
-USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
-
 // this is where we store how much of the data we've already read
-uint8_t ep_buf_data_ptr[USB_NUM_EP * 2];
+USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
+USB_EP_Data_Ptr ep_never_used[USB_NUM_EP];
+
 
 volatile uint8_t _usbConfiguration = 0;
 
-static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
+static inline bool Stalled(uint8_t ep, InOrOut inOut)
 {
   if(inOut == kIn)
-    return endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
+    return endpoints[ep].in.STATUS & USB_EP_STALLF_bm;
   else
-    return endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
+    return endpoints[ep].out.STATUS & USB_EP_STALLF_bm;
+}
+
+static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
+{
+  if(Stalled(endpoint, inOut))
+  {
+    Serial.println("Last transaction stalled!");
+    return true;
+  }
+  if(inOut == kIn)
+    return ep_never_used[endpoint].in || endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
+  else
+    return ep_never_used[endpoint].out || endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
 }
 
 static inline void WaitForTransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
+  Serial.println("Wait For Transaction");
   while (!TransactionComplete(endpoint, inOut));
+  Serial.println("Transaction done!");
 }
 
 static inline InOrOut WaitForEitherInOrOut(uint8_t endpoint)
@@ -146,20 +160,21 @@ static inline void ClearSetupReceived(uint8_t ep)
   endpoints[ep].out.STATUS = USB_EP_SETUP_bm;
 }
 
+// this stalls the next transaction.
 static inline void Stall(uint8_t ep, InOrOut inOut)
 {
   if(inOut == kIn)
+  {
+    ep_data_ptr[ep].in = 0;
     endpoints[ep].in.CTRL |= USB_EP_STALL_bm;
+    endpoints[ep].in.STATUS = USB_EP_STALLF_bm | USB_EP_OVF_bm;
+  }
   else
+  {
+    ep_data_ptr[ep].out = 0;
     endpoints[ep].out.CTRL |= USB_EP_STALL_bm;
-}
-
-static inline bool Stalled(uint8_t ep, InOrOut inOut)
-{
-  if(inOut == kIn)
-    return endpoints[ep].in.STATUS & USB_EP_STALLF_bm;
-  else
-    return endpoints[ep].out.STATUS & USB_EP_STALLF_bm;
+    endpoints[ep].out.STATUS = USB_EP_STALLF_bm | USB_EP_OVF_bm;
+  }
 }
 
 // This has several effects:
@@ -172,15 +187,18 @@ static inline bool Stalled(uint8_t ep, InOrOut inOut)
 // dropped until you call this.
 static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
 {
+  Serial.println("Ready for next packet");
   if(inOut == kOut)
   {
+    ep_never_used[ep].out = false;
     ep_data_ptr[ep].out = 0;
     // these are all cleared by writing "1"s to their locations.  weird.
-    endpoints[ep].out.STATUS = USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    endpoints[ep].out.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
   }
   else
   {
-    endpoints[ep].in.STATUS = USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    ep_never_used[ep].in = false;
+    endpoints[ep].in.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
     ep_data_ptr[ep].in = 0;
   }
 }
@@ -191,9 +209,12 @@ void InitControlEP()
 	endpoints[0].out.STATUS = 0;
 	endpoints[0].out.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
 	endpoints[0].out.DATAPTR = (unsigned) ep_bufs[0].out;
-	endpoints[0].in.STATUS = USB_EP_BUSNACK0_bm;
+	endpoints[0].in.STATUS = 0;
 	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
 	endpoints[0].in.DATAPTR = (unsigned) ep_bufs[0].in;
+    ep_never_used[0].in = true;
+    ep_never_used[0].in = true;
+    ep_data_ptr[0].in = ep_data_ptr[0].out = 0;
 }
 
 #define F_USB 48000000
@@ -221,24 +242,24 @@ void USB_Init()
 
     // wait for PLL stability.
     while(not (OSC.STATUS & OSC_PLLRDY_bm));
-
+  
 	//USB clock enabled, high speed mode, uses the 32Mhz DFLL configured above
 	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_PLL_gc | CLK_USBSEN_bm);
-	
+    	
 	//Reset the USB address
 	USB.ADDR = 0;
 	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
-
+    
     InitControlEP();
-
+    
 	// Enable USB, Full speed mode, with USB_NUM_EP endpoints
 	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | (USB_NUM_EP - 1);
-
+    USB.CTRLB = USB_ATTACH_bm;
     // we need the following interrupts:
     // - setup transaction complete
     // - Start of frame
     // - Reset (encapsulated by BUSEVIE)
-    USB.INTCTRLA = USB_SOFIE_bm | USB_BUSEVIE_bm |  USB_INTLVL_LO_gc; // low priority.
+    USB.INTCTRLA = USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
     USB.INTCTRLB = USB_SETUPIE_bm;
 }
 
@@ -263,6 +284,12 @@ static inline uint8_t Recv8(uint8_t ep)
   uint8_t out;
   Recv(ep, &out, 1);
   return out;
+}
+
+// send zero-size packet.
+static inline void Send0(uint8_t ep)
+{
+  endpoints[ep].in.CNT = 0;
 }
 
 // Again, this is a dangerous private call.
@@ -424,16 +451,20 @@ void InitEP(uint8_t ep, InOrOut type)
 {
   if(type == kIn)
   {
-    endpoints[ep].in.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
+    endpoints[ep].in.STATUS = 0;
     endpoints[ep].in.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
     endpoints[ep].in.DATAPTR = (unsigned) ep_bufs[ep].in;
     endpoints[ep].in.CNT = USB_EPSIZE;
+    ep_data_ptr[ep].in = 0;
+    ep_never_used[ep].in = true;
   }
   else if(type == kOut)
   {
-    endpoints[ep].out.STATUS = USB_EP_BUSNACK0_bm | USB_EP_TRNCOMPL0_bm;
+    endpoints[ep].out.STATUS = 0;
     endpoints[ep].out.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
     endpoints[ep].out.DATAPTR = (unsigned) ep_bufs[ep].out;
+    ep_data_ptr[ep].out = 0;
+    ep_never_used[ep].out = true;
   }
 }
 
@@ -451,15 +482,22 @@ static
 bool ClassInterfaceRequest(Setup& setup)
 {
 	uint8_t i = setup.wIndex;
-
+    Serial.println(i);
 #ifdef CDC_ENABLED
 	if (CDC_ACM_INTERFACE == i)
+    {
+      Serial.println("CDC");
 		return CDC_Setup(setup);
+    }
+
 #endif
 
 #ifdef HID_ENABLED
 	if (HID_INTERFACE == i)
+    {
+        Serial.println("HID");
 		return HID_Setup(setup);
+    }
 #endif
 	return false;
 }
@@ -564,18 +602,27 @@ bool SendDescriptor(Setup& setup)
 {
 	uint8_t t = setup.wValueH;
 	if (USB_CONFIGURATION_DESCRIPTOR_TYPE == t)
-		return SendConfiguration(setup.wLength);
+    {
+      Serial.println("USB_CONFIGURATION_DESCRIPTOR_TYPE matches");
+      return SendConfiguration(setup.wLength);
+    }
 
+    Serial.println("Init control!");
 	InitControl(setup.wLength);
+
 #ifdef HID_ENABLED
 	if (HID_REPORT_DESCRIPTOR_TYPE == t)
+      {
+        Serial.println("HID descriptor");
 		return HID_GetDescriptor(t);
+      }
 #endif
 
 	uint8_t desc_length = 0;
 	const uint8_t* desc_addr = 0;
 	if (USB_DEVICE_DESCRIPTOR_TYPE == t)
 	{
+        Serial.println("Device descriptor");
 		if (setup.wLength == 8)
 			_cdcComposite = 1;
 		desc_addr = _cdcComposite ?  (const uint8_t*)&USB_DeviceDescriptorA : (const uint8_t*)&USB_DeviceDescriptor;
@@ -598,83 +645,13 @@ bool SendDescriptor(Setup& setup)
 		desc_length = pgm_read_byte(desc_addr);
 
 	USB_SendControl(TRANSFER_PGM,desc_addr,desc_length);
+    Serial.println("USB_SendControl complete.");
 	return true;
 }
 
 // this interrupt is fired when a transaction is complete.
 ISR(USB_TRNCOMPL_vect)
 {
-  // we only need to do something here if 
-  // we got a setup packet on EP 0.
-  if(!WasSetupReceived(0))
-    return;
-
-  // grab the setup data.
-  Setup setup;
-  Recv(0, (uint8_t*)&setup,8);
-
-  // clear the flag for next time.
-  ClearSetupReceived(0);
-  ReadyForNextPacket(0, kOut);
-
-  uint8_t requestType = setup.bmRequestType;
-  if (requestType & REQUEST_DEVICETOHOST)
-    WaitForTransactionComplete(0, kIn);
-  else
-      ReadyForNextPacket(0, kIn);
-
-  bool ok = true;
-  if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
-  {
-    //	Standard Requests
-    uint8_t r = setup.bRequest;
-    if (GET_STATUS == r)
-    {
-      Send8(0, 0);		// TODO
-      Send8(0, 0);
-    }
-    else if (CLEAR_FEATURE == r) {}
-	else if (SET_FEATURE == r) {}
-	else if (SET_ADDRESS == r)
-    {
-      WaitForTransactionComplete(0, kIn);
-      USB.ADDR = setup.wValueL;
-    }
-    else if (GET_DESCRIPTOR == r)
-    {
-      ok = SendDescriptor(setup);
-	}
-	else if (SET_DESCRIPTOR == r)
-	{
-		ok = false;
-	}
-	else if (GET_CONFIGURATION == r)
-	{
-      Send8(0, 1);
-	}
-    else if (SET_CONFIGURATION == r)
-    {
-      if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
-      {
-        InitEndpoints();
-        _usbConfiguration = setup.wValueL;
-      } else
-        ok = false;
-    }
-    else if (GET_INTERFACE == r) {}
-    else if (SET_INTERFACE == r) {}
-  }
-  else
-  {
-    InitControl(setup.wLength);		//	Max length of transfer
-    ok = ClassInterfaceRequest(setup);
-  }
-
-  if (ok)
-    // send the next in packet.
-    ReadyForNextPacket(0, kIn);
-  else
-    Stall(0, kIn);
 }
 
 // actually sends out the stuff in the in buffer
@@ -695,6 +672,7 @@ ISR(USB_BUSEVENT_vect)
 {
   uint8_t intFlags = USB.INTFLAGSASET;
   USB.INTFLAGSACLR = 0xFF; // clear all interrupt flags.
+
   //	End of Reset
   if (intFlags & USB_RSTIF_bm)
   {
@@ -716,7 +694,7 @@ ISR(USB_BUSEVENT_vect)
 	if (RxLEDPulse && !(--RxLEDPulse))
 		RXLED0;
 #endif
-	}
+}
 }
 
 //	VBUS or counting frames
@@ -758,6 +736,102 @@ bool USB_::configured()
 
 void USB_::poll()
 {
+  // we only need to do something here if 
+  // we got a setup packet on EP 0.
+  if(!WasSetupReceived(0))
+    return;
+
+  Serial.println("setup received.");
+
+  // grab the setup data.
+  Setup setup;
+  Recv(0, (uint8_t*)&setup,8);
+
+  // clear the flag for next time.
+  ClearSetupReceived(0);
+
+  uint8_t requestType = setup.bmRequestType;
+  if (requestType & REQUEST_DEVICETOHOST)
+  {
+    Serial.println("device to host");
+    WaitForTransactionComplete(0, kIn);
+    Send0(0);
+  }
+  else
+  {
+    Serial.println("host to device");
+    WaitForTransactionComplete(0, kIn);
+    Send0(0);
+  }
+
+  bool ok = true;
+  if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
+  {
+    Serial.println("REQUEST_STANDARD");
+
+    //	Standard Requests
+    uint8_t r = setup.bRequest;
+    if (GET_STATUS == r)
+    {
+      Serial.println("GET_STATUS");
+      Send8(0, 0);		// TODO
+      Send8(0, 0);
+    }
+    else if (CLEAR_FEATURE == r) {}
+	else if (SET_FEATURE == r) {}
+	else if (SET_ADDRESS == r)
+    {
+      Serial.println("SET ADDRESS");
+      WaitForTransactionComplete(0, kIn);
+      USB.ADDR = setup.wValueL;
+      Send0(0);
+    }
+    else if (GET_DESCRIPTOR == r)
+    {
+      Serial.println("GET DESCRIPTOR");
+      ok = SendDescriptor(setup);
+	}
+	else if (SET_DESCRIPTOR == r)
+	{
+      Serial.println("SET DESCRIPTOR");      
+		ok = false;
+	}
+	else if (GET_CONFIGURATION == r)
+	{
+      Serial.println("GET Configuration");
+      Send8(0, 1);
+	}
+    else if (SET_CONFIGURATION == r)
+    {
+      Serial.println("SET Configuration");
+      if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
+      {
+        InitEndpoints();
+        _usbConfiguration = setup.wValueL;
+      } else
+        ok = false;
+    }
+    else if (GET_INTERFACE == r) {}
+    else if (SET_INTERFACE == r) {}
+  }
+  else 
+  {
+    Serial.println("Class interface!");
+    InitControl(setup.wLength);		//	Max length of transfer
+    ok = ClassInterfaceRequest(setup);
+  }
+
+  if (ok)
+  {
+    Serial.println("OK");
+    // send the next in packet.
+    ReadyForNextPacket(0, kIn);
+  }
+  else
+  {
+    Serial.println("Stall!?");
+    Stall(0, kIn);
+  }
 }
 
 #endif 
