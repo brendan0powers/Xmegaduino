@@ -203,23 +203,27 @@ void USB_Init()
 	_usbConfiguration = 0;
 	
 	/* Configure USB clock */
-	OSC.DFLLCTRL = OSC_RC32MCREF_USBSOF_gc; //Use internal 32khz osc. to calibrate the USB clock
-	//Set calibration bytes for the usb clock
-	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
-	DFLLRC32M.CALB = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBRCOSC));
-	//Set the frequency of the USB osc. to 48MHz
-	DFLLRC32M.COMP1 = 0x1B; //Xmega AU manual, p41
-	DFLLRC32M.COMP2 = 0xB7;
-	DFLLRC32M.CTRL = DFLL_ENABLE_bm; //Enable USB clock
+
+    // disable PLL.
+	OSC.CTRL &= ~(OSC_PLLEN_bm);
 	
-	//Load USB calibration bytes
-	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
-	USB.CAL0 = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBCAL0));
-	NVM.CMD  = NVM_CMD_READ_CALIB_ROW_gc;
-	USB.CAL1 = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, USBCAL1));
-	
+    // use the 2MHz oscillator, multiplied by 24 = 48MHz.
+    OSC.PLLCTRL = OSC_PLLSRC_RC2M_gc | 24;
+    
+    // enable the 2MHz.
+    OSC.CTRL |= OSC_RC2MEN_bm;
+
+    // wait for 2MHz stability
+    while(not (OSC.STATUS & OSC_RC2MRDY_bm));
+
+    // enable PLL
+    OSC.CTRL |= OSC_PLLEN_bm;
+
+    // wait for PLL stability.
+    while(not (OSC.STATUS & OSC_PLLRDY_bm));
+
 	//USB clock enabled, high speed mode, uses the 32Mhz DFLL configured above
-	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_RC32M_gc | CLK_USBSEN_bm);
+	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_PLL_gc | CLK_USBSEN_bm);
 	
 	//Reset the USB address
 	USB.ADDR = 0;
