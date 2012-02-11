@@ -103,7 +103,7 @@ struct USB_EP_Data_Ptr
 };
 // this is where we store how much of the data we've already read
 USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
-USB_EP_Data_Ptr ep_never_used[USB_NUM_EP];
+USB_EP_Data_Ptr ep_last_stalled[USB_NUM_EP];
 
 
 volatile uint8_t _usbConfiguration = 0;
@@ -118,15 +118,10 @@ static inline bool Stalled(uint8_t ep, InOrOut inOut)
 
 static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
-  if(Stalled(endpoint, inOut))
-  {
-    Serial.println("Last transaction stalled!");
-    return true;
-  }
   if(inOut == kIn)
-    return ep_never_used[endpoint].in || endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
+    return ep_last_stalled[endpoint].in || endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
   else
-    return ep_never_used[endpoint].out || endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
+    return ep_last_stalled[endpoint].out || endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
 }
 
 static inline void WaitForTransactionComplete(uint8_t endpoint, InOrOut inOut)
@@ -168,12 +163,14 @@ static inline void Stall(uint8_t ep, InOrOut inOut)
     ep_data_ptr[ep].in = 0;
     endpoints[ep].in.CTRL |= USB_EP_STALL_bm;
     endpoints[ep].in.STATUS = USB_EP_STALLF_bm | USB_EP_OVF_bm;
+    ep_last_stalled[ep].in = true;
   }
   else
   {
     ep_data_ptr[ep].out = 0;
     endpoints[ep].out.CTRL |= USB_EP_STALL_bm;
     endpoints[ep].out.STATUS = USB_EP_STALLF_bm | USB_EP_OVF_bm;
+    ep_last_stalled[ep].out = true;
   }
 }
 
@@ -190,14 +187,14 @@ static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
   Serial.println("Ready for next packet");
   if(inOut == kOut)
   {
-    ep_never_used[ep].out = false;
     ep_data_ptr[ep].out = 0;
+    ep_last_stalled[ep].in = false;
     // these are all cleared by writing "1"s to their locations.  weird.
     endpoints[ep].out.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
   }
   else
   {
-    ep_never_used[ep].in = false;
+    ep_last_stalled[ep].in = false;
     endpoints[ep].in.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
     ep_data_ptr[ep].in = 0;
   }
@@ -212,8 +209,8 @@ void InitControlEP()
 	endpoints[0].in.STATUS = 0;
 	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
 	endpoints[0].in.DATAPTR = (unsigned) ep_bufs[0].in;
-    ep_never_used[0].in = true;
-    ep_never_used[0].in = true;
+    ep_last_stalled[0].in = true;
+    ep_last_stalled[0].in = true;
     ep_data_ptr[0].in = ep_data_ptr[0].out = 0;
 }
 
@@ -456,7 +453,7 @@ void InitEP(uint8_t ep, InOrOut type)
     endpoints[ep].in.DATAPTR = (unsigned) ep_bufs[ep].in;
     endpoints[ep].in.CNT = USB_EPSIZE;
     ep_data_ptr[ep].in = 0;
-    ep_never_used[ep].in = true;
+    ep_last_stalled[ep].in = true;
   }
   else if(type == kOut)
   {
@@ -464,7 +461,7 @@ void InitEP(uint8_t ep, InOrOut type)
     endpoints[ep].out.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
     endpoints[ep].out.DATAPTR = (unsigned) ep_bufs[ep].out;
     ep_data_ptr[ep].out = 0;
-    ep_never_used[ep].out = true;
+    ep_last_stalled[ep].out = true;
   }
 }
 
@@ -747,6 +744,8 @@ void USB_::poll()
   Setup setup;
   Recv(0, (uint8_t*)&setup,8);
 
+  Serial.println(setup.bmRequestType);
+  Serial.println(setup.bRequest);
   // clear the flag for next time.
   ClearSetupReceived(0);
 
@@ -754,12 +753,6 @@ void USB_::poll()
   if (requestType & REQUEST_DEVICETOHOST)
   {
     Serial.println("device to host");
-    WaitForTransactionComplete(0, kIn);
-    Send0(0);
-  }
-  else
-  {
-    Serial.println("host to device");
     WaitForTransactionComplete(0, kIn);
     Send0(0);
   }
@@ -773,9 +766,14 @@ void USB_::poll()
     uint8_t r = setup.bRequest;
     if (GET_STATUS == r)
     {
-      Serial.println("GET_STATUS");
-      Send8(0, 0);		// TODO
-      Send8(0, 0);
+      if(requestType & REQUEST_DEVICETOHOST)
+      {
+        Serial.println("GET_STATUS");
+        Send8(0, 0);		// TODO
+        Send8(0, 0);
+      }
+      else
+        Stall(0, kOut);
     }
     else if (CLEAR_FEATURE == r) {}
 	else if (SET_FEATURE == r) {}
@@ -821,16 +819,19 @@ void USB_::poll()
     ok = ClassInterfaceRequest(setup);
   }
 
-  if (ok)
+  if(requestType & REQUEST_DEVICETOHOST)
   {
-    Serial.println("OK");
-    // send the next in packet.
-    ReadyForNextPacket(0, kIn);
-  }
-  else
-  {
-    Serial.println("Stall!?");
-    Stall(0, kIn);
+    if (ok)
+    {
+      Serial.println("OK");
+      // send the next in packet.
+      ReadyForNextPacket(0, kIn);
+    }
+    else
+    {
+      Serial.println("Stall!?");
+      Stall(0, kIn);
+    }
   }
 }
 
