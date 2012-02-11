@@ -20,7 +20,7 @@
 #include "USBAPI.h"
 #include <avr/wdt.h>
 
-#if defined(USBCON)
+#ifdef USB
 #ifdef CDC_ENABLED
 
 void Reboot()
@@ -170,7 +170,7 @@ size_t Serial_::write(uint8_t c)
 	return 0;
 }
 
-Serial_ Serial;
+Serial_ USBSerial;
 
 #endif
 #endif /* if defined(USBCON) */

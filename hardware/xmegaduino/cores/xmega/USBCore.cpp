@@ -196,6 +196,8 @@ void InitControlEP()
 	endpoints[0].in.DATAPTR = (unsigned) ep_bufs[0].in;
 }
 
+#define F_USB 48000000
+
 void USB_Init()
 {
 	_usbConfiguration = 0;
@@ -615,7 +617,7 @@ ISR(USB_TRNCOMPL_vect)
   if (requestType & REQUEST_DEVICETOHOST)
     WaitForTransactionComplete(0, kIn);
   else
-      ReadyForNextPacket(ep, kIn);
+      ReadyForNextPacket(0, kIn);
 
   bool ok = true;
   if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
@@ -624,8 +626,8 @@ ISR(USB_TRNCOMPL_vect)
     uint8_t r = setup.bRequest;
     if (GET_STATUS == r)
     {
-      Send8(0);		// TODO
-      Send8(0);
+      Send8(0, 0);		// TODO
+      Send8(0, 0);
     }
     else if (CLEAR_FEATURE == r) {}
 	else if (SET_FEATURE == r) {}
@@ -668,7 +670,7 @@ ISR(USB_TRNCOMPL_vect)
     // send the next in packet.
     ReadyForNextPacket(0, kIn);
   else
-    Stall(0);
+    Stall(0, kIn);
 }
 
 // actually sends out the stuff in the in buffer
@@ -680,7 +682,7 @@ void USB_Flush(uint8_t ep)
 uint16_t LastFrameNumber()
 {
   // frame number count is after all of the endpoint buffers.
-  return (uint16_t*)(&endpoints[USB_NUM_EP]);
+  return *(uint16_t*)(&endpoints[USB_NUM_EP]);
 }
 
 // this is called on bus events.  we only care about start-of-frame and
@@ -725,7 +727,7 @@ bool USBConnected()
 //=======================================================================
 //=======================================================================
 
-USB_ USB;
+USB_ USBConfig;
 
 USB_::USB_()
 {
