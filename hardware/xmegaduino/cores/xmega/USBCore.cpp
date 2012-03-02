@@ -189,13 +189,12 @@ static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
   {
     ep_data_ptr[ep].out = 0;
     ep_last_stalled[ep].in = false;
-    // these are all cleared by writing "1"s to their locations.  weird.
-    endpoints[ep].out.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    endpoints[ep].out.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm);
   }
   else
   {
     ep_last_stalled[ep].in = false;
-    endpoints[ep].in.STATUS |= USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm;
+    endpoints[ep].in.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm);
     ep_data_ptr[ep].in = 0;
   }
 }
@@ -620,7 +619,7 @@ bool SendDescriptor(Setup& setup)
 	if (USB_DEVICE_DESCRIPTOR_TYPE == t)
 	{
         Serial.println("Device descriptor");
-		if (setup.wLength == 8)
+		if (setup.wLength >= 8)
 			_cdcComposite = 1;
 		desc_addr = _cdcComposite ?  (const uint8_t*)&USB_DeviceDescriptorA : (const uint8_t*)&USB_DeviceDescriptor;
 	}
