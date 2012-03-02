@@ -126,9 +126,7 @@ static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
 
 static inline void WaitForTransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
-  Serial.println("Wait For Transaction");
   while (!TransactionComplete(endpoint, inOut));
-  Serial.println("Transaction done!");
 }
 
 static inline InOrOut WaitForEitherInOrOut(uint8_t endpoint)
@@ -151,8 +149,8 @@ static inline bool WasSetupReceived(uint8_t ep)
 
 static inline void ClearSetupReceived(uint8_t ep)
 {
-  // we just have to clear the one we check above in WasSetupReceived.
-  endpoints[ep].out.STATUS = USB_EP_SETUP_bm;
+  endpoints[ep].out.STATUS &= ~USB_EP_SETUP_bm;
+  ep_data_ptr[ep].out = 0;
 }
 
 // this stalls the next transaction.
@@ -184,7 +182,6 @@ static inline void Stall(uint8_t ep, InOrOut inOut)
 // dropped until you call this.
 static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
 {
-  Serial.println("Ready for next packet");
   if(inOut == kOut)
   {
     ep_data_ptr[ep].out = 0;
@@ -478,11 +475,9 @@ static
 bool ClassInterfaceRequest(Setup& setup)
 {
 	uint8_t i = setup.wIndex;
-    Serial.println(i);
 #ifdef CDC_ENABLED
 	if (CDC_ACM_INTERFACE == i)
     {
-      Serial.println("CDC");
 		return CDC_Setup(setup);
     }
 
@@ -491,7 +486,6 @@ bool ClassInterfaceRequest(Setup& setup)
 #ifdef HID_ENABLED
 	if (HID_INTERFACE == i)
     {
-        Serial.println("HID");
 		return HID_Setup(setup);
     }
 #endif
@@ -599,17 +593,14 @@ bool SendDescriptor(Setup& setup)
 	uint8_t t = setup.wValueH;
 	if (USB_CONFIGURATION_DESCRIPTOR_TYPE == t)
     {
-      Serial.println("USB_CONFIGURATION_DESCRIPTOR_TYPE matches");
       return SendConfiguration(setup.wLength);
     }
 
-    Serial.println("Init control!");
 	InitControl(setup.wLength);
 
 #ifdef HID_ENABLED
 	if (HID_REPORT_DESCRIPTOR_TYPE == t)
       {
-        Serial.println("HID descriptor");
 		return HID_GetDescriptor(t);
       }
 #endif
@@ -618,7 +609,6 @@ bool SendDescriptor(Setup& setup)
 	const uint8_t* desc_addr = 0;
 	if (USB_DEVICE_DESCRIPTOR_TYPE == t)
 	{
-        Serial.println("Device descriptor");
 		if (setup.wLength >= 8)
 			_cdcComposite = 1;
 		desc_addr = _cdcComposite ?  (const uint8_t*)&USB_DeviceDescriptorA : (const uint8_t*)&USB_DeviceDescriptor;
@@ -641,7 +631,6 @@ bool SendDescriptor(Setup& setup)
 		desc_length = pgm_read_byte(desc_addr);
 
 	USB_SendControl(TRANSFER_PGM,desc_addr,desc_length);
-    Serial.println("USB_SendControl complete.");
 	return true;
 }
 
@@ -737,21 +726,17 @@ void USB_::poll()
   if(!WasSetupReceived(0))
     return;
 
-  Serial.println("setup received.");
 
   // grab the setup data.
   Setup setup;
   Recv(0, (uint8_t*)&setup,8);
 
-  Serial.println(setup.bmRequestType);
-  Serial.println(setup.bRequest);
   // clear the flag for next time.
   ClearSetupReceived(0);
 
   uint8_t requestType = setup.bmRequestType;
   if (requestType & REQUEST_DEVICETOHOST)
   {
-    Serial.println("device to host");
     WaitForTransactionComplete(0, kIn);
     Send0(0);
   }
@@ -759,7 +744,6 @@ void USB_::poll()
   bool ok = true;
   if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
   {
-    Serial.println("REQUEST_STANDARD");
 
     //	Standard Requests
     uint8_t r = setup.bRequest;
@@ -767,7 +751,6 @@ void USB_::poll()
     {
       if(requestType & REQUEST_DEVICETOHOST)
       {
-        Serial.println("GET_STATUS");
         Send8(0, 0);		// TODO
         Send8(0, 0);
       }
@@ -778,29 +761,26 @@ void USB_::poll()
 	else if (SET_FEATURE == r) {}
 	else if (SET_ADDRESS == r)
     {
-      Serial.println("SET ADDRESS");
-      WaitForTransactionComplete(0, kIn);
-      USB.ADDR = setup.wValueL;
       Send0(0);
+      ReadyForNextPacket(0, kIn);
+      WaitForTransactionComplete(0, kIn);
+      ep_last_stalled[0].in = true;
+      USB.ADDR = setup.wValueL;
     }
     else if (GET_DESCRIPTOR == r)
     {
-      Serial.println("GET DESCRIPTOR");
       ok = SendDescriptor(setup);
 	}
 	else if (SET_DESCRIPTOR == r)
 	{
-      Serial.println("SET DESCRIPTOR");      
 		ok = false;
 	}
 	else if (GET_CONFIGURATION == r)
 	{
-      Serial.println("GET Configuration");
       Send8(0, 1);
 	}
     else if (SET_CONFIGURATION == r)
     {
-      Serial.println("SET Configuration");
       if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
       {
         InitEndpoints();
@@ -813,7 +793,6 @@ void USB_::poll()
   }
   else 
   {
-    Serial.println("Class interface!");
     InitControl(setup.wLength);		//	Max length of transfer
     ok = ClassInterfaceRequest(setup);
   }
@@ -822,13 +801,11 @@ void USB_::poll()
   {
     if (ok)
     {
-      Serial.println("OK");
       // send the next in packet.
       ReadyForNextPacket(0, kIn);
     }
     else
     {
-      Serial.println("Stall!?");
       Stall(0, kIn);
     }
   }
