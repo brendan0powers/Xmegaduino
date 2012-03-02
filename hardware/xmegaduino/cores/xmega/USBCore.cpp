@@ -591,8 +591,11 @@ static
 bool SendDescriptor(Setup& setup)
 {
 	uint8_t t = setup.wValueH;
+    Serial.println("Sending descriptor");
+    Serial.println(t);
 	if (USB_CONFIGURATION_DESCRIPTOR_TYPE == t)
     {
+      Serial.println("Configuration!");
       return SendConfiguration(setup.wLength);
     }
 
@@ -726,7 +729,6 @@ void USB_::poll()
   if(!WasSetupReceived(0))
     return;
 
-
   // grab the setup data.
   Setup setup;
   Recv(0, (uint8_t*)&setup,8);
@@ -735,9 +737,11 @@ void USB_::poll()
   ClearSetupReceived(0);
 
   uint8_t requestType = setup.bmRequestType;
+  Serial.println("Request: ");
+  Serial.println(requestType);
+  Serial.println(setup.bRequest);
   if (requestType & REQUEST_DEVICETOHOST)
   {
-    WaitForTransactionComplete(0, kIn);
     Send0(0);
   }
 
@@ -769,7 +773,7 @@ void USB_::poll()
     }
     else if (GET_DESCRIPTOR == r)
     {
-      ok = SendDescriptor(setup);
+        ok = SendDescriptor(setup);
 	}
 	else if (SET_DESCRIPTOR == r)
 	{
@@ -803,9 +807,14 @@ void USB_::poll()
     {
       // send the next in packet.
       ReadyForNextPacket(0, kIn);
+      // wait for the status stage.
+      ReadyForNextPacket(0, kOut);
+      WaitForTransactionComplete(0, kIn);
+      WaitForTransactionComplete(0, kOut);
     }
     else
     {
+      Serial.println("Stall!");
       Stall(0, kIn);
     }
   }
