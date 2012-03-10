@@ -66,10 +66,10 @@ const uint16_t STRING_IMANUFACTURER[12] = {
 
 //	DEVICE DESCRIPTOR
 const DeviceDescriptor USB_DeviceDescriptor =
-	D_DEVICE(0x00,0x00,0x00,64,USB_VID,USB_PID,0x100,IMANUFACTURER,IPRODUCT,0,1);
+	D_DEVICE(0x00,0x00,0x00,USB_EPSIZE,USB_VID,USB_PID,0x100,IMANUFACTURER,IPRODUCT,0,1);
 
 const DeviceDescriptor USB_DeviceDescriptorA =
-	D_DEVICE(DEVICE_CLASS,0x00,0x00,64,USB_VID,USB_PID,0x100,IMANUFACTURER,IPRODUCT,0,1);
+	D_DEVICE(DEVICE_CLASS,0x00,0x00,USB_EPSIZE,USB_VID,USB_PID,0x100,IMANUFACTURER,IPRODUCT,0,1);
 
 //==================================================================
 //==================================================================
@@ -119,7 +119,7 @@ static inline bool Stalled(uint8_t ep, InOrOut inOut)
 static inline bool TransactionComplete(uint8_t endpoint, InOrOut inOut)
 {
   if(inOut == kIn)
-    return ep_last_stalled[endpoint].in || endpoints[endpoint].in.STATUS & USB_EP_TRNCOMPL0_bm;
+    return ep_last_stalled[endpoint].in || endpoints[endpoint].in.STATUS & (USB_EP_TRNCOMPL0_bm | USB_EP_OVF_bm);
   else
     return ep_last_stalled[endpoint].out || endpoints[endpoint].out.STATUS & USB_EP_TRNCOMPL0_bm;
 }
@@ -186,12 +186,12 @@ static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
   {
     ep_data_ptr[ep].out = 0;
     ep_last_stalled[ep].in = false;
-    endpoints[ep].out.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm);
+    endpoints[ep].out.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL1_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_BUSNACK1_bm | USB_EP_OVF_bm);
   }
   else
   {
     ep_last_stalled[ep].in = false;
-    endpoints[ep].in.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm);
+    endpoints[ep].in.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL1_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm |  USB_EP_BUSNACK1_bm | USB_EP_OVF_bm);
     ep_data_ptr[ep].in = 0;
   }
 }
@@ -500,6 +500,8 @@ void InitControl(int end)
 {
 	_cmark = 0;
 	_cend = end;
+    ep_data_ptr[0].in = 0;
+    Send0(0);
 }
 
 // send control always works on endpoint 0.
@@ -510,12 +512,15 @@ bool SendControl(uint8_t d)
 {
 	if (_cmark < _cend)
 	{
-      if(WaitForEitherInOrOut(0) == kIn)
-        return false;
       Send8(0, d);
       // if we hit the end of the buffer, send the packet.
-	  if (_cmark > USB_EPSIZE)
+	  if (ep_data_ptr[0].in >= USB_EPSIZE)
+      {
         ReadyForNextPacket(0, kIn);
+        for(int i = 0; i < 800; ++i)
+          delayMicroseconds(1000);
+        WaitForTransactionComplete(0, kIn);
+      }
 	}
 	_cmark++;
 	return true;
@@ -591,11 +596,8 @@ static
 bool SendDescriptor(Setup& setup)
 {
 	uint8_t t = setup.wValueH;
-    Serial.println("Sending descriptor");
-    Serial.println(t);
 	if (USB_CONFIGURATION_DESCRIPTOR_TYPE == t)
     {
-      Serial.println("Configuration!");
       return SendConfiguration(setup.wLength);
     }
 
@@ -737,9 +739,6 @@ void USB_::poll()
   ClearSetupReceived(0);
 
   uint8_t requestType = setup.bmRequestType;
-  Serial.println("Request: ");
-  Serial.println(requestType);
-  Serial.println(setup.bRequest);
   if (requestType & REQUEST_DEVICETOHOST)
   {
     Send0(0);
@@ -789,6 +788,10 @@ void USB_::poll()
       {
         InitEndpoints();
         _usbConfiguration = setup.wValueL;
+        Send0(0);
+        ReadyForNextPacket(0, kIn);
+        WaitForTransactionComplete(0, kIn);
+        ep_last_stalled[0].in = true;
       } else
         ok = false;
     }
@@ -814,7 +817,6 @@ void USB_::poll()
     }
     else
     {
-      Serial.println("Stall!");
       Stall(0, kIn);
     }
   }
