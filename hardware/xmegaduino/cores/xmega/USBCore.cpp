@@ -192,7 +192,6 @@ static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
   {
     ep_last_stalled[ep].in = false;
     endpoints[ep].in.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL1_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm |  USB_EP_BUSNACK1_bm | USB_EP_OVF_bm);
-    ep_data_ptr[ep].in = 0;
   }
 }
 
@@ -492,6 +491,16 @@ bool ClassInterfaceRequest(Setup& setup)
 	return false;
 }
 
+// this starts the sending of a new packet.
+static void 
+InitSend(uint8_t ep)
+{
+  // double check the previous transaction is done
+  WaitForTransactionComplete(ep, kIn);
+  ep_data_ptr[ep].in = 0;
+  endpoints[ep].in.CNT = 0;
+}
+
 // This clips the sending of control data.
 // it seems kind of heavy-handed.
 static int _cmark = 0;
@@ -500,8 +509,36 @@ void InitControl(int end)
 {
 	_cmark = 0;
 	_cend = end;
-    ep_data_ptr[0].in = 0;
-    Send0(0);
+    InitSend(0);
+}
+
+// this is a blocking function that sends the current packet
+// on the given endpoint.
+static void
+SendCurrentPacket(uint8_t ep)
+{
+  ReadyForNextPacket(ep, kIn);
+  WaitForTransactionComplete(ep, kIn);
+}
+
+static void
+AcknowledgeSetupPacket(InOrOut inout)
+{
+  // to acknowledge a setup transaction, we
+  // do an operation in the *opposite* direction
+  // with a blank packet.
+  if(inout == kIn)
+  {
+    // receive a blank packet.
+    ReadyForNextPacket(0, kOut);
+    WaitForTransactionComplete(0, kOut);
+  }
+  else
+  {
+    // send a blank packet.
+    InitSend(0);
+    SendCurrentPacket(0);
+  }
 }
 
 // send control always works on endpoint 0.
@@ -516,10 +553,8 @@ bool SendControl(uint8_t d)
       // if we hit the end of the buffer, send the packet.
 	  if (ep_data_ptr[0].in >= USB_EPSIZE)
       {
-        ReadyForNextPacket(0, kIn);
-        for(int i = 0; i < 800; ++i)
-          delayMicroseconds(1000);
-        WaitForTransactionComplete(0, kIn);
+        SendCurrentPacket(0);
+        InitSend(0);
       }
 	}
 	_cmark++;
@@ -647,7 +682,8 @@ ISR(USB_TRNCOMPL_vect)
 // actually sends out the stuff in the in buffer
 void USB_Flush(uint8_t ep)
 {
-  ReadyForNextPacket(ep, kIn);
+  SendCurrentPacket(ep);
+  InitSend(ep);
 }
 
 uint16_t LastFrameNumber()
@@ -741,13 +777,12 @@ void USB_::poll()
   uint8_t requestType = setup.bmRequestType;
   if (requestType & REQUEST_DEVICETOHOST)
   {
-    Send0(0);
+    InitSend(0);
   }
 
   bool ok = true;
   if (REQUEST_STANDARD == (requestType & REQUEST_TYPE))
   {
-
     //	Standard Requests
     uint8_t r = setup.bRequest;
     if (GET_STATUS == r)
@@ -764,10 +799,7 @@ void USB_::poll()
 	else if (SET_FEATURE == r) {}
 	else if (SET_ADDRESS == r)
     {
-      Send0(0);
-      ReadyForNextPacket(0, kIn);
-      WaitForTransactionComplete(0, kIn);
-      ep_last_stalled[0].in = true;
+      AcknowledgeSetupPacket(kOut);
       USB.ADDR = setup.wValueL;
     }
     else if (GET_DESCRIPTOR == r)
@@ -786,12 +818,9 @@ void USB_::poll()
     {
       if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
       {
+        AcknowledgeSetupPacket(kOut);
         InitEndpoints();
         _usbConfiguration = setup.wValueL;
-        Send0(0);
-        ReadyForNextPacket(0, kIn);
-        WaitForTransactionComplete(0, kIn);
-        ep_last_stalled[0].in = true;
       } else
         ok = false;
     }
@@ -808,12 +837,8 @@ void USB_::poll()
   {
     if (ok)
     {
-      // send the next in packet.
-      ReadyForNextPacket(0, kIn);
-      // wait for the status stage.
-      ReadyForNextPacket(0, kOut);
-      WaitForTransactionComplete(0, kIn);
-      WaitForTransactionComplete(0, kOut);
+      SendCurrentPacket(0);
+      AcknowledgeSetupPacket(kIn);
     }
     else
     {

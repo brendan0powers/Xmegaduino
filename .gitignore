@@ -1,2 +1,5 @@
 build/macosx/work/
+build/linux/work/
 *.class
+/app/pde.jar
+/core/core.jar
