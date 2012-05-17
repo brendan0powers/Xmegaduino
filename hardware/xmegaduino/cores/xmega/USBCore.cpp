@@ -251,8 +251,8 @@ void USB_Init()
     // - setup transaction complete
     // - Start of frame
     // - Reset (encapsulated by BUSEVIE)
-    USB.INTCTRLA = USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
-    USB.INTCTRLB = USB_SETUPIE_bm;
+    USB.INTCTRLA = 0; // USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
+    USB.INTCTRLB = 0; // USB_SETUPIE_bm;
 }
 
 
