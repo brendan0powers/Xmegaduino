@@ -581,11 +581,14 @@ int USB_SendControl(uint8_t flags, const void* d, int len)
 //	TODO
 int USB_RecvControl(void* d, int len)
 {
-  WaitForTransactionComplete(0, kOut);
-  Recv(0, (uint8_t*)d,len);
-  
   // ensure that we're ready for the next packet.
   // this will discard any data outside of "len".
+  ReadyForNextPacket(0, kOut);
+
+  WaitForTransactionComplete(0, kOut);
+
+  Recv(0, (uint8_t*)d,len);
+
   ReadyForNextPacket(0, kOut);
 
   return len;
@@ -799,8 +802,10 @@ void USB_::poll()
 	else if (SET_FEATURE == r) {}
 	else if (SET_ADDRESS == r)
     {
+      // we have to ACK from old address.
       AcknowledgeSetupPacket(kOut);
       USB.ADDR = setup.wValueL;
+      return;
     }
     else if (GET_DESCRIPTOR == r)
     {
@@ -818,9 +823,9 @@ void USB_::poll()
     {
       if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
       {
-        AcknowledgeSetupPacket(kOut);
         InitEndpoints();
         _usbConfiguration = setup.wValueL;
+        ok = true;
       } else
         ok = false;
     }
@@ -829,7 +834,8 @@ void USB_::poll()
   }
   else 
   {
-    InitControl(setup.wLength);		//	Max length of transfer
+    if(requestType & REQUEST_DEVICETOHOST)
+      InitControl(setup.wLength);		//	Max length of transfer
     ok = ClassInterfaceRequest(setup);
   }
 
@@ -843,6 +849,13 @@ void USB_::poll()
     else
     {
       Stall(0, kIn);
+    }
+  }
+  else
+  {
+    if (ok)
+    {
+      AcknowledgeSetupPacket(kOut);
     }
   }
 }
