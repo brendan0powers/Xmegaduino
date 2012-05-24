@@ -19,6 +19,12 @@
 #include "USBDesc.h"
 #include "stddef.h"
 
+/*
+  Here's the plan:  we try to be as non-blocking as possible.  At the end
+of all public interface functions we should be waiting on the next
+packet either in or out.  The first step of most functions is to wait
+until a transaction is complete so we can perform another transaction.
+*/
 
 #ifdef USB
 
@@ -373,7 +379,6 @@ static void
 SendCurrentPacket(uint8_t ep)
 {
   ReadyForNextPacket(ep, kIn);
-  WaitForTransactionComplete(ep, kIn);
 }
 
 extern const uint8_t _initEndpoints[] PROGMEM;
@@ -450,8 +455,10 @@ bool ClassInterfaceRequest(Setup& setup)
 static void 
 InitSend(uint8_t ep)
 {
-  // double check the previous transaction is done
+  // wait until the previous transaction is over.
   WaitForTransactionComplete(ep, kIn);
+  
+  // note that there's no data in the buffer yet.
   ep_data_ptr[ep].in = 0;
   endpoints[ep].in.CNT = 0;
 }
@@ -476,8 +483,8 @@ AcknowledgeSetupPacket(InOrOut inout)
   if(inout == kIn)
   {
     // receive a blank packet.
-    ReadyForNextPacket(0, kOut);
     WaitForTransactionComplete(0, kOut);
+    ReadyForNextPacket(0, kOut);
   }
   else
   {
@@ -576,10 +583,7 @@ int USB_SendControl(uint8_t flags, const void* d, int len)
 //	TODO
 int USB_RecvControl(void* d, int len)
 {
-  // ensure that we're ready for the next packet.
-  // this will discard any data outside of "len".
-  ReadyForNextPacket(0, kOut);
-
+  // wait for the transaction to complete.
   WaitForTransactionComplete(0, kOut);
 
   Recv(0, (uint8_t*)d,len);
@@ -681,7 +685,6 @@ ISR(USB_TRNCOMPL_vect)
 void USB_Flush(uint8_t ep)
 {
   SendCurrentPacket(ep);
-  InitSend(ep);
 }
 
 uint16_t LastFrameNumber()
@@ -770,8 +773,8 @@ void USB_::poll()
   Recv(0, (uint8_t*)&setup,8);
 
   // clear the flag for next time.
-  ClearSetupReceived(0);
-
+  ReadyForNextPacket(0, kOut);
+  
   uint8_t requestType = setup.bmRequestType;
   if (requestType & REQUEST_DEVICETOHOST)
   {
@@ -799,6 +802,7 @@ void USB_::poll()
     {
       // we have to ACK from old address.
       AcknowledgeSetupPacket(kOut);
+      WaitForTransactionComplete(0, kIn);
       USB.ADDR = setup.wValueL;
       return;
     }
