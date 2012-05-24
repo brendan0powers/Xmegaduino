@@ -185,7 +185,7 @@ static inline void ReadyForNextPacket(uint8_t ep, InOrOut inOut)
   if(inOut == kOut)
   {
     ep_data_ptr[ep].out = 0;
-    ep_last_stalled[ep].in = false;
+    ep_last_stalled[ep].out = false;
     endpoints[ep].out.STATUS &= ~(USB_EP_STALL_bm | USB_EP_TRNCOMPL1_bm | USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_BUSNACK1_bm | USB_EP_OVF_bm);
   }
   else
@@ -204,7 +204,7 @@ void InitControlEP()
 	endpoints[0].in.STATUS = 0;
 	endpoints[0].in.CTRL = USB_EP_TYPE_CONTROL_gc | USB_EPSIZE_gc;
 	endpoints[0].in.DATAPTR = (unsigned) ep_bufs[0].in;
-    ep_last_stalled[0].in = true;
+    ep_last_stalled[0].out = true;
     ep_last_stalled[0].in = true;
     ep_data_ptr[0].in = ep_data_ptr[0].out = 0;
 }
@@ -339,7 +339,7 @@ int USB_Recv(uint8_t ep, void* d, int len)
 {
 	if (!_usbConfiguration || len < 0)
 		return -1;
-	
+    
 	uint8_t n = BytesLeft(ep, kOut);
 	len = min(n,len);
 	n = len;
@@ -364,7 +364,6 @@ int USB_Recv(uint8_t ep)
 //	Space in send EP
 uint8_t USB_SendSpace(uint8_t ep)
 {
-  Serial.println(BytesLeft(ep, kIn));
   return BytesLeft(ep, kIn);
 }
 
@@ -410,8 +409,9 @@ void InitEP(uint8_t ep, InOrOut type)
     endpoints[ep].out.STATUS = 0;
     endpoints[ep].out.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
     endpoints[ep].out.DATAPTR = (unsigned) ep_bufs[ep].out;
+    endpoints[ep].out.CNT = 0;
     ep_data_ptr[ep].out = 0;
-    ep_last_stalled[ep].out = true;
+    ep_last_stalled[ep].out = false;
   }
 }
 
