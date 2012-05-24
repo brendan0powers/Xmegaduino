@@ -364,63 +364,18 @@ int USB_Recv(uint8_t ep)
 //	Space in send EP
 uint8_t USB_SendSpace(uint8_t ep)
 {
-  return USB_EPSIZE - BytesLeft(ep, kIn);
+  Serial.println(BytesLeft(ep, kIn));
+  return BytesLeft(ep, kIn);
 }
 
-//	Blocking Send of data to an endpoint
-int USB_Send(uint8_t ep, const void* d, int len)
+// this is a blocking function that sends the current packet
+// on the given endpoint.
+static void
+SendCurrentPacket(uint8_t ep)
 {
-	if (!_usbConfiguration)
-		return -1;
-
-	int r = len;
-	const uint8_t* data = (const uint8_t*)d;
-	uint8_t zero = ep & TRANSFER_ZERO;
-	uint8_t timeout = 250;		// 250ms timeout on send? TODO
-	while (len)
-	{
-		uint8_t n = USB_SendSpace(ep);
-		if (n == 0)
-		{
-			if (!(--timeout))
-				return -1;
-			delay(1);
-			continue;
-		}
-
-		if (n > len)
-			n = len;
-		len -= n;
-		{
-			if (ep & TRANSFER_ZERO)
-			{
-				while (n--)
-                  Send8(ep, 0);
-			}
-			else if (ep & TRANSFER_PGM)
-			{
-				while (n--)
-                  Send8(ep, pgm_read_byte(data++));
-			}
-			else
-			{
-				while (n--)
-                  Send8(ep, *data++);
-			}
-			if ((len == 0) && (ep & TRANSFER_RELEASE))	// Release full buffer
-              ReadyForNextPacket(ep, kIn);
-		}
-	}
-
-#ifdef USB_LED
-	TXLED1;					// light the TX LED
-	TxLEDPulse = TX_RX_LED_PULSE_MS;
-#endif
-
-	return r;
+  ReadyForNextPacket(ep, kIn);
+  WaitForTransactionComplete(ep, kIn);
 }
-
-
 
 extern const uint8_t _initEndpoints[] PROGMEM;
 const uint8_t _initEndpoints[] = 
@@ -512,15 +467,6 @@ void InitControl(int end)
     InitSend(0);
 }
 
-// this is a blocking function that sends the current packet
-// on the given endpoint.
-static void
-SendCurrentPacket(uint8_t ep)
-{
-  ReadyForNextPacket(ep, kIn);
-  WaitForTransactionComplete(ep, kIn);
-}
-
 static void
 AcknowledgeSetupPacket(InOrOut inout)
 {
@@ -560,6 +506,55 @@ bool SendControl(uint8_t d)
 	_cmark++;
 	return true;
 };
+
+//	Blocking Send of data to an endpoint
+int USB_Send(uint8_t ep, const void* d, int len)
+{
+	if (!_usbConfiguration)
+		return -1;
+
+    InitSend(ep);
+
+	int r = len;
+	const uint8_t* data = (const uint8_t*)d;
+	uint8_t zero = ep & TRANSFER_ZERO;
+	uint8_t timeout = 250;		// 250ms timeout on send? TODO
+	while (len)
+	{
+		uint8_t n = USB_SendSpace(ep);
+		if (n == 0)
+			return 0;
+
+		if (n > len)
+			n = len;
+		len -= n;
+		{
+			if (ep & TRANSFER_ZERO)
+			{
+				while (n--)
+                  Send8(ep, 0);
+			}
+			else if (ep & TRANSFER_PGM)
+			{
+				while (n--)
+                  Send8(ep, pgm_read_byte(data++));
+			}
+			else
+			{
+				while (n--)
+                  Send8(ep, *data++);
+			}
+            SendCurrentPacket(ep);
+		}
+	}
+
+#ifdef USB_LED
+	TXLED1;					// light the TX LED
+	TxLEDPulse = TX_RX_LED_PULSE_MS;
+#endif
+
+	return r;
+}
 
 //	Clipped by _cmark/_cend
 int USB_SendControl(uint8_t flags, const void* d, int len)

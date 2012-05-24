@@ -74,10 +74,6 @@ bool WEAK CDC_Setup(Setup& setup)
 	uint8_t r = setup.bRequest;
 	uint8_t requestType = setup.bmRequestType;
 
-    Serial.println(requestType);
-    Serial.println("Could be: ");
-    Serial.println(REQUEST_DEVICETOHOST_CLASS_INTERFACE);
-    Serial.println(REQUEST_HOSTTODEVICE_CLASS_INTERFACE);
 	if (REQUEST_DEVICETOHOST_CLASS_INTERFACE == requestType)
 	{
 		if (CDC_GET_LINE_CODING == r)
