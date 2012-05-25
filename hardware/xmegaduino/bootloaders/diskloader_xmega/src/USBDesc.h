@@ -17,38 +17,21 @@
 */
 
 
-#ifdef CDC_ENABLED
-
 #define CDC_ACM_INTERFACE	0	// CDC ACM
 #define CDC_DATA_INTERFACE	1	// CDC Data
 #define CDC_ENDPOINT_ACM	1
 #define CDC_ENDPOINT_OUT	2
 #define CDC_ENDPOINT_IN		3
 
-#define HID_INTERFACE		2	// HID Interface
-#define HID_ENDPOINT_INT	4
+#define INTERFACE_COUNT		2
 
-#define INTERFACE_COUNT		3	// 2 for cdc + 1 for hid
-
-#define USB_MAXEP		4
+#define USB_MAXEP		3
 #define USB_EP0SIZE		64
-
-#else 
-
-#define HID_INTERFACE		2	// HID Interface
-#define HID_ENDPOINT_INT	4
-
-#define INTERFACE_COUNT		1	// 1 for hid
-
-#endif
 
 typedef struct
 {
 	ConfigDescriptor	config;
-#ifdef CDC_ENABLED
 	CDCDescriptor		cdc;
-#endif
-	HIDDescriptor		hid;
 } Config;
 
 extern Config USB_ConfigDescriptor PROGMEM;
