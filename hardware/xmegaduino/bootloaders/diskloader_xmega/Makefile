@@ -38,9 +38,51 @@ ASMFLAGS = $(COMMON)
 ASMFLAGS += $(CFLAGS)
 ASMFLAGS += -x assembler-with-cpp -Wa,-gdwarf2
 
+# Processor definitions
+ifeq ($(MCU), atxmega16a4)
+  BOOT_SECTION_START            =0x004000
+endif
+ifeq ($(MCU), atxmega32a4)
+  BOOT_SECTION_START            =0x008000
+endif
+ifeq ($(MCU), atxmega64a1)
+  BOOT_SECTION_START            =0x010000
+endif
+ifeq ($(MCU), atxmega64a3)
+  BOOT_SECTION_START            =0x010000
+endif
+ifeq ($(MCU), atxmega64a4)
+  BOOT_SECTION_START            =0x010000
+endif
+ifeq ($(MCU), atxmega128a1)
+  BOOT_SECTION_START            =0x020000
+endif
+ifeq ($(MCU), atxmega128a3)
+  BOOT_SECTION_START            =0x020000
+endif
+ifeq ($(MCU), atxmega128a4)
+  BOOT_SECTION_START            =0x020000
+endif
+ifeq ($(MCU), atxmega192a1)
+  BOOT_SECTION_START            =0x030000
+endif
+ifeq ($(MCU), atxmega192a3)
+  BOOT_SECTION_START            =0x030000
+endif
+ifeq ($(MCU), atxmega256a1)
+  BOOT_SECTION_START            =0x040000
+endif
+ifeq ($(MCU), atxmega256a3)
+  BOOT_SECTION_START            =0x040000
+endif
+ifeq ($(MCU), atxmega256a3b)
+  BOOT_SECTION_START            =0x040000
+endif
+
 ## Linker flags
 LDFLAGS = $(COMMON)
-LDFLAGS += -Wl,-gc-sections,-Map=DiskLoader.map,--section-start=.text=0x7800,--relax
+LDFLAGS += -Wl,-gc-sections,-Map=DiskLoader.map,--section-start=.text=$(BOOT_SECTION_START),--relax
+LDFLAGS += -Wl,--section-start=.boot-entry=$(shell python -c "print hex($(BOOT_SECTION_START)+4096-8)")
 LDFLAGS += -nodefaultlibs -nostartfiles
 
 
@@ -57,7 +99,7 @@ SRC_DIR   := $(addprefix src/,$(MODULES))
 BUILD_DIR := $(addprefix build/,$(MODULES))
 
 SRC       := $(foreach sdir,$(SRC_DIR),$(wildcard $(sdir)/*.cpp))
-OBJ       := $(patsubst src/%.cpp,build/%.o,$(SRC))
+OBJ       := $(patsubst src/%.cpp,build/%.o,$(SRC),%.S)
 DEP		  := $(OBJ:%.o=%.d)
 INCLUDES  := $(addprefix -I,$(SRC_DIR))
 
