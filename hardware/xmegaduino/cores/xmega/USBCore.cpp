@@ -284,21 +284,12 @@ static inline uint8_t Recv8(uint8_t ep)
   return out;
 }
 
-// send zero-size packet.
-static inline void Send0(uint8_t ep)
-{
-  endpoints[ep].in.CNT = 0;
-}
-
 // Again, this is a dangerous private call.
 // Do not call this if you aren't sure that you're not overflowing
 // the buffer.
 static inline void Send8(uint8_t ep, uint8_t d)
 {
   ep_bufs[ep].in[ep_data_ptr[ep].in++] = d;
-  
-  // mark that there's another byte in the buffer.
-  endpoints[ep].in.CNT = ep_data_ptr[ep].in;
 }
 
 // this is the number of bytes that remain on an endpoint.
@@ -378,6 +369,7 @@ uint8_t USB_SendSpace(uint8_t ep)
 static void
 SendCurrentPacket(uint8_t ep)
 {
+  endpoints[ep].in.CNT = ep_data_ptr[ep].in;
   ReadyForNextPacket(ep, kIn);
 }
 
@@ -405,7 +397,7 @@ void InitEP(uint8_t ep, InOrOut type)
     endpoints[ep].in.STATUS = 0;
     endpoints[ep].in.CTRL = USB_EP_TYPE_BULK_gc | USB_EPSIZE_gc;
     endpoints[ep].in.DATAPTR = (unsigned) ep_bufs[ep].in;
-    endpoints[ep].in.CNT = USB_EPSIZE;
+    endpoints[ep].in.CNT = 0;
     ep_data_ptr[ep].in = 0;
     ep_last_stalled[ep].in = true;
   }
@@ -520,17 +512,21 @@ int USB_Send(uint8_t ep, const void* d, int len)
 	if (!_usbConfiguration)
 		return -1;
 
-    InitSend(ep);
+    WaitForTransactionComplete(ep, kIn);
 
 	int r = len;
 	const uint8_t* data = (const uint8_t*)d;
 	uint8_t zero = ep & TRANSFER_ZERO;
-	uint8_t timeout = 250;		// 250ms timeout on send? TODO
 	while (len)
 	{
 		uint8_t n = USB_SendSpace(ep);
+        // if there's no more space, we need to flush.
 		if (n == 0)
-			return 0;
+        {
+          USB_Flush(ep);
+          WaitForTransactionComplete(ep, kIn);
+          continue;
+        }
 
 		if (n > len)
 			n = len;
@@ -551,7 +547,8 @@ int USB_Send(uint8_t ep, const void* d, int len)
 				while (n--)
                   Send8(ep, *data++);
 			}
-            SendCurrentPacket(ep);
+            if ((len == 0) && (ep & TRANSFER_RELEASE))
+              USB_Flush(ep);
 		}
 	}
 
@@ -676,15 +673,15 @@ bool SendDescriptor(Setup& setup)
 	return true;
 }
 
-// this interrupt is fired when a transaction is complete.
-ISR(USB_TRNCOMPL_vect)
-{
-}
-
 // actually sends out the stuff in the in buffer
 void USB_Flush(uint8_t ep)
 {
-  SendCurrentPacket(ep);
+  if(ep_data_ptr[ep].in != 0)
+  {
+    SendCurrentPacket(ep);
+    // note that there's no data in the buffer yet.
+    ep_data_ptr[ep].in = 0;
+  }
 }
 
 uint16_t LastFrameNumber()
