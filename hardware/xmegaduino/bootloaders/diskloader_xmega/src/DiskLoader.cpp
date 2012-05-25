@@ -12,21 +12,8 @@
 //	The tweakier code is to keep the bootloader below 2k (no interrupt table, for example)
 
 extern "C"
-void entrypoint(void) __attribute__ ((naked)) __attribute__ ((section (".vectors")));
-void entrypoint(void)
-{
-	asm volatile (
-		"eor	r1,		r1\n"	// Zero register
-		"out	0x3F,	r1\n"	// SREG
-		"ldi	r28,	0xFF\n"
-		"ldi	r29,	0x0A\n"
-		"out	0x3E,	r29\n"	// SPH
-		"out	0x3D,	r28\n"	// SPL
-		"rjmp	main"			// Stack is all set up, start the main code
-		::);
-}
 
-u8 _flashbuf[128];
+u8 _flashbuf[APP_SECTION_PAGE_SIZE];
 u8 _inSync;
 u8 _ok;
 extern volatile u8 _ejected;
@@ -34,28 +21,22 @@ extern volatile u16 _timeout;
 
 void Program(u8 ep, u16 page, u8 count)
 {
-/*
-	u8 write = page < 30*1024;		// Don't write over firmware please
-	if (write)
-		boot_page_erase(page);
+	SP_EraseApplicationPage(page);
 
 	Recv(ep,_flashbuf,count);		// Read while page is erasing
 
-	if (!write)
-		return;
-
-	boot_spm_busy_wait();			// Wait until the memory is erased.
+	SP_WaitForSPM();
+	NVM.CMD = NVM_CMD_NO_OPERATION_gc;
 
 	count >>= 1;
-	u16* p = (u16*)page;
+	u16 p = 0;
 	u16* b = (u16*)_flashbuf;
 	for (u8 i = 0; i < count; i++)
-		boot_page_fill(p++, b[i]);
-
-    boot_page_write(page);
-    boot_spm_busy_wait();
-    boot_rww_enable ();
-*/
+		SP_LoadFlashWord(p++, b[i]);
+	
+	SP_WriteApplicationPage(page);
+	SP_WaitForSPM();
+	NVM.CMD = NVM_CMD_NO_OPERATION_gc;
 }
 
 
@@ -116,7 +97,17 @@ int main()
 	TXLED0;
 	RXLED0;
 	LED0;
-	BOARD_INIT();
+
+	WDT.CTRL = 0; /*Diable the watchdog timer*/
+	PORTC.DIRSET = (1<<3); /*Set the LED to output*/
+	OSC.CTRL |= OSC_RC32MEN_bm; /*Enable the 32MHz oscilator*/ 
+	while ( !(OSC.STATUS & OSC_RC32MEN_bm) ); /*Wait for it to stabalize*/ 
+		CCP = CCP_IOREG_gc; /*Open Sesame*/
+		CLK.CTRL = (CLK.CTRL & ~CLK_SCLKSEL_gm ) | CLK_SCLKSEL_RC32M_gc; /*Use the 32MHz clock as the system clock*/
+	
+	CCP = CCP_IOREG_gc; /*Open Sesame*/
+	PMIC.CTRL = PMIC_IVSEL_bm | PMIC_LOLVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_MEDLVLEN_bm; //Move interrupt vector to the boot loader, and enable interrupts
+	
 	USBInit();
 
 	_inSync = STK_INSYNC;
@@ -230,11 +221,12 @@ void Reboot()
 {
 	TXLED0;		// switch off the RX and TX LEDs before starting the user sketch
 	RXLED0;
+	
+	CCP = CCP_IOREG_gc; /*Open Sesame*/
+	PMIC.CTRL = PMIC_LOLVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_MEDLVLEN_bm; //Move interrupt vector to the application section, and enable interrupts
+	
 	USB.CTRLB = 0;
 	USB.CTRLA = 0;
-	asm volatile (	// Reset vector to run firmware
-		"clr r30\n"
-		"clr r31\n"
-		"ijmp\n"
-	::);
+	// Jump into main code
+	asm("jmp 0");
 }
