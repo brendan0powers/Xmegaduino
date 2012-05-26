@@ -176,11 +176,6 @@ public class Compiler implements MessageConsumer {
      "rcs",
      runtimeLibraryName
    }));
-   for(File file : coreObjectFiles) {
-     List commandAR = new ArrayList(baseCommandAR);
-     commandAR.add(file.getAbsolutePath());
-     execAsynchronously(commandAR);
-   }
 
     // 4. link it all together into the .elf file
 
@@ -190,6 +185,7 @@ public class Compiler implements MessageConsumer {
       "-Os",
       "-Wl,--gc-sections",
       "-mmcu=" + boardPreferences.get("build.mcu"),
+      "-nostartfiles",
       "-o",
       buildPath + File.separator + primaryClassName + ".elf"
     }));
@@ -197,8 +193,11 @@ public class Compiler implements MessageConsumer {
     for (File file : objectFiles) {
       baseCommandLinker.add(file.getAbsolutePath());
     }
+    for(File file : coreObjectFiles) {
+      baseCommandLinker.add(file.getAbsolutePath());
+    }
 
-    baseCommandLinker.add(runtimeLibraryName);
+
     baseCommandLinker.add("-L" + buildPath);
     baseCommandLinker.add("-lm");
 
