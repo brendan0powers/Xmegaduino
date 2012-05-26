@@ -258,7 +258,7 @@ void USB_Init()
     // - Start of frame
     // - Reset (encapsulated by BUSEVIE)
     USB.INTCTRLA = USB_BUSEVIE_bm | USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
-    USB.INTCTRLB = 0; // USB_SETUPIE_bm;
+    USB.INTCTRLB = USB_SETUPIE_bm;
 }
 
 
@@ -751,6 +751,17 @@ bool USB_::configured()
 
 void USB_::poll()
 {
+}
+
+ISR(USB_TRNCOMPL_vect)
+{
+  uint8_t intFlags = USB.INTFLAGSBSET;
+  USB.INTFLAGSBCLR = 0xFF; // clear all interrupt flags.
+
+  // if we didn't get a setup, what are we even doing here?
+  if(not (intFlags & USB_SETUPIF_bm))
+    return;
+
   // we only need to do something here if 
   // we got a setup packet on EP 0.
   if(!WasSetupReceived(0))
