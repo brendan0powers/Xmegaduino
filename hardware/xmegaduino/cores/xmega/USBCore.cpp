@@ -257,7 +257,7 @@ void USB_Init()
     // - setup transaction complete
     // - Start of frame
     // - Reset (encapsulated by BUSEVIE)
-    USB.INTCTRLA = 0; // USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
+    USB.INTCTRLA = USB_BUSEVIE_bm | USB_SOFIE_bm |  USB_INTLVL_LO_gc; // low priority.
     USB.INTCTRLB = 0; // USB_SETUPIE_bm;
 }
 
@@ -532,7 +532,7 @@ int USB_Send(uint8_t ep, const void* d, int len)
 			n = len;
 		len -= n;
 		{
-			if (ep & TRANSFER_ZERO)
+			if (zero)
 			{
 				while (n--)
                   Send8(ep, 0);
@@ -719,15 +719,6 @@ ISR(USB_BUSEVENT_vect)
 		RXLED0;
 #endif
 }
-}
-
-//	VBUS or counting frames
-//	Any frame counting?
-bool USBConnected()
-{
-    uint16_t f = LastFrameNumber();
-	delay(3);
-	return f != LastFrameNumber();
 }
 
 //=======================================================================
