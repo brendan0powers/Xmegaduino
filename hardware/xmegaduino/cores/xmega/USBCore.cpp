@@ -244,8 +244,10 @@ void USB_Init()
 	//USB clock enabled, high speed mode, uses the 32Mhz DFLL configured above
 	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_PLL_gc | CLK_USBSEN_bm);
     	
-	//Reset the USB address
-	USB.ADDR = 0;
+    // if we came from a hardware reset, reset the address to 0
+    if(!(RST.STATUS & RST_SRF_bm))
+      USB.ADDR = 0;
+
 	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
     
     InitControlEP();
