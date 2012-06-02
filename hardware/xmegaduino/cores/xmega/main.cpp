@@ -4,6 +4,10 @@ int main(void)
 {
 	init();
 
+#if defined(USB)
+        USBConfig.attach();
+#endif
+
 	setup();
     
 	for (;;)
