@@ -246,7 +246,14 @@ void USB_Init()
     	
     // if we came from a hardware reset, reset the address to 0
     if(!(RST.STATUS & RST_SRF_bm))
+    {
       USB.ADDR = 0;
+    }
+    else
+    {
+      // if we came from a software reset, call ourselves configured.
+      _usbConfiguration = 1;
+    }
 
 	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
     
