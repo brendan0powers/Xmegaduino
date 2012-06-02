@@ -25,10 +25,8 @@
 
 void Reboot()
 {
-  // TODO - what should we do?
-	// USB.detach();
-	// cli();
-	// asm volatile("jmp 0x7800");		// jump to bootloader - DiskLoader takes up last 2 kB
+	CCP = CCP_IOREG_gc;
+	RST.CTRL = RST_SWRST_bm;
 }
 
 typedef struct
@@ -93,7 +91,7 @@ bool WEAK CDC_Setup(Setup& setup)
 
 		if (CDC_SET_CONTROL_LINE_STATE == r)
 		{
-			if (0 != _usbLineInfo.lineState && 1200 == _usbLineInfo.dwDTERate)	// auto-reset is triggered when the port, already open at 1200 bps, is closed
+			if (0 != _usbLineInfo.lineState && _usbLineInfo.dwDTERate == _usbLineInfo.dwDTERate)	// auto-reset is triggered when the port, already open at 1200 bps, is closed
 				Reboot();
 			_usbLineInfo.lineState = setup.wValueL;
 			return true;
