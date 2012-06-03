@@ -111,8 +111,8 @@ struct USB_EP_Data_Ptr
 USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
 USB_EP_Data_Ptr ep_last_stalled[USB_NUM_EP];
 
-
 volatile uint8_t _usbConfiguration = 0;
+uint8_t _stored_addr  __attribute__ ((section (".noinit")));
 
 static inline bool Stalled(uint8_t ep, InOrOut inOut)
 {
@@ -217,6 +217,8 @@ void InitControlEP()
 
 #define F_USB 48000000
 
+static void InitEndpoints();
+
 void USB_Init()
 {
 	_usbConfiguration = 0;
@@ -243,16 +245,19 @@ void USB_Init()
   
 	//USB clock enabled, high speed mode, uses the 32Mhz DFLL configured above
 	CLK.USBCTRL = ((((F_USB / 48000000) - 1) << CLK_USBPSDIV_gp) | CLK_USBSRC_PLL_gc | CLK_USBSEN_bm);
-    	
+
     // if we came from a hardware reset, reset the address to 0
     if(!(RST.STATUS & RST_SRF_bm))
     {
       USB.ADDR = 0;
+      _stored_addr = 0;
     }
     else
     {
       // if we came from a software reset, call ourselves configured.
       _usbConfiguration = 1;
+      USB.ADDR = _stored_addr;
+      InitEndpoints();
     }
 
 	USB.EPPTR = (unsigned) &endpoints; //Set the endpoint address pointer
@@ -261,7 +266,7 @@ void USB_Init()
     
 	// Enable USB, Full speed mode, with USB_NUM_EP endpoints
 	USB.CTRLA = USB_ENABLE_bm | USB_SPEED_bm | (USB_NUM_EP - 1);
-    USB.CTRLB = USB_ATTACH_bm;
+    USB.CTRLB = USB_ATTACH_bm | USB_PULLRST_bm;
     // we need the following interrupts:
     // - setup transaction complete
     // - Start of frame
@@ -709,6 +714,8 @@ ISR(USB_BUSEVENT_vect)
   //	End of Reset
   if (intFlags & USB_RSTIF_bm)
   {
+    USB.ADDR = 0;
+    _stored_addr = 0;
     InitControlEP();
 	_usbConfiguration = 0;			// not configured yet
   }
@@ -812,6 +819,7 @@ ISR(USB_TRNCOMPL_vect)
       AcknowledgeSetupPacket(kOut);
       WaitForTransactionComplete(0, kIn);
       USB.ADDR = setup.wValueL;
+      _stored_addr = USB.ADDR;
       return;
     }
     else if (GET_DESCRIPTOR == r)
