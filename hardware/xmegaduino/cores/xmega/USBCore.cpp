@@ -111,8 +111,24 @@ struct USB_EP_Data_Ptr
 USB_EP_Data_Ptr ep_data_ptr[USB_NUM_EP];
 USB_EP_Data_Ptr ep_last_stalled[USB_NUM_EP];
 
+// local statics that can be changed from interrupts.
 volatile uint8_t _usbConfiguration = 0;
-uint8_t _stored_addr  __attribute__ ((section (".noinit")));
+// these let us save information about the USB state accross
+// software resets.
+volatile uint8_t _stored_addr __attribute__ ((section (".noinit")));
+volatile uint8_t _stored_config __attribute__ ((section (".noinit")));
+
+static inline void SetAddress(uint8_t addr)
+{
+  USB.ADDR = addr;
+  _stored_addr = addr;
+}
+
+static inline void SetConfigured(uint8_t config)
+{
+  _usbConfiguration = config;
+  _stored_config = config;
+}
 
 static inline bool Stalled(uint8_t ep, InOrOut inOut)
 {
@@ -221,8 +237,6 @@ static void InitEndpoints();
 
 void USB_Init()
 {
-	_usbConfiguration = 0;
-	
 	/* Configure USB clock */
 
     // disable PLL.
@@ -249,14 +263,14 @@ void USB_Init()
     // if we came from a hardware reset, reset the address to 0
     if(!(RST.STATUS & RST_SRF_bm))
     {
-      USB.ADDR = 0;
-      _stored_addr = 0;
+      SetAddress(0);
+      SetConfigured(0);
     }
-    else
+    else if(_stored_config)
     {
       // if we came from a software reset, call ourselves configured.
-      _usbConfiguration = 1;
-      USB.ADDR = _stored_addr;
+      SetConfigured(0);
+      SetAddress(_stored_addr);
       InitEndpoints();
     }
 
@@ -714,10 +728,9 @@ ISR(USB_BUSEVENT_vect)
   //	End of Reset
   if (intFlags & USB_RSTIF_bm)
   {
-    USB.ADDR = 0;
-    _stored_addr = 0;
+    SetAddress(0);
     InitControlEP();
-	_usbConfiguration = 0;			// not configured yet
+    SetConfigured(0);
   }
 
   //	Start of Frame - happens every millisecond so we use it for TX and RX LED one-shot timing, too
@@ -818,8 +831,7 @@ ISR(USB_TRNCOMPL_vect)
       // we have to ACK from old address.
       AcknowledgeSetupPacket(kOut);
       WaitForTransactionComplete(0, kIn);
-      USB.ADDR = setup.wValueL;
-      _stored_addr = USB.ADDR;
+      SetAddress(setup.wValueL);
       return;
     }
     else if (GET_DESCRIPTOR == r)
@@ -839,7 +851,7 @@ ISR(USB_TRNCOMPL_vect)
       if (REQUEST_DEVICE == (requestType & REQUEST_RECIPIENT))
       {
         InitEndpoints();
-        _usbConfiguration = setup.wValueL;
+        SetConfigured(_usbConfiguration);
         ok = true;
       } else
         ok = false;
