@@ -26,6 +26,7 @@ package processing.app;
 //import processing.core.*;
 
 import processing.app.debug.MessageConsumer;
+import static processing.app.I18n._;
 
 import gnu.io.*;
 
@@ -100,6 +101,32 @@ public class Serial implements SerialPortEventListener {
       new Float(Preferences.get("serial.stopbits")).floatValue());
   }
 
+  public static boolean touchPort(String iname, int irate) throws SerialException {
+    SerialPort port;
+    boolean result = false;
+    try {
+      Enumeration portList = CommPortIdentifier.getPortIdentifiers();
+      while (portList.hasMoreElements()) {
+        CommPortIdentifier portId = (CommPortIdentifier) portList.nextElement();
+        if ((CommPortIdentifier.PORT_SERIAL == portId.getPortType()) && (portId.getName().equals(iname))) {
+          port = (SerialPort) portId.open("tap", 2000);
+          port.setSerialPortParams(irate, 8, SerialPort.STOPBITS_1, SerialPort.PARITY_NONE);
+          port.close();				
+          result = true;
+        }
+      }
+    } catch (PortInUseException e) {
+      throw new SerialException(
+        I18n.format(_("Serial port ''{0}'' already in use. Try quitting any programs that may be using it."), iname)
+      );
+    } catch (Exception e) {
+      throw new SerialException(
+        I18n.format(_("Error touching serial port ''{0}''."), iname), e
+      );
+    }
+	return result;
+  }
+
   public Serial(String iname, int irate,
                  char iparity, int idatabits, float istopbits)
   throws SerialException {
@@ -141,16 +168,32 @@ public class Serial implements SerialPortEventListener {
         }
       }
     } catch (PortInUseException e) {
-      throw new SerialException("Serial port '" + iname + "' already in use.  Try quiting any programs that may be using it.");
+      throw new SerialException(
+        I18n.format(
+          _("Serial port ''{0}'' already in use. Try quiting any programs that may be using it."),
+          iname
+        )
+      );
     } catch (Exception e) {
-      throw new SerialException("Error opening serial port '" + iname + "'.", e);
+      throw new SerialException(
+        I18n.format(
+          _("Error opening serial port ''{0}''."),
+          iname
+        ),
+        e
+      );
 //      //errorMessage("<init>", e);
 //      //exception = e;
 //      //e.printStackTrace();
     }
     
     if (port == null) {
-      throw new SerialNotFoundException("Serial port '" + iname + "' not found.  Did you select the right one from the Tools > Serial Port menu?");
+      throw new SerialNotFoundException(
+        I18n.format(
+          _("Serial port ''{0}'' not found. Did you select the right one from the Tools > Serial Port menu?"),
+          iname
+        )
+      );
     }
   }
 
@@ -402,9 +445,14 @@ public class Serial implements SerialPortEventListener {
 
       int length = found - bufferIndex + 1;
       if (length > outgoing.length) {
-        System.err.println("readBytesUntil() byte buffer is" +
-                           " too small for the " + length + 
-                           " bytes up to and including char " + interesting);
+        System.err.println(
+          I18n.format(
+            _("readBytesUntil() byte buffer is too small for the {0}" +
+              " bytes up to and including char {1}"),
+            length,
+            interesting
+          )
+        );
         return -1;
       }
       //byte outgoing[] = new byte[length];
@@ -505,10 +553,11 @@ public class Serial implements SerialPortEventListener {
    * it may be because the DLL doesn't have its exec bit set.
    * Why the hell that'd be the case, who knows.
    */
-  static public String[] list() {
-    Vector list = new Vector();
+  static public List<String> list() {
+    List<String> list = new ArrayList<String>();
     try {
       //System.err.println("trying");
+      @SuppressWarnings("unchecked")
       Enumeration portList = CommPortIdentifier.getPortIdentifiers();
       //System.err.println("got port list");
       while (portList.hasMoreElements()) {
@@ -518,7 +567,7 @@ public class Serial implements SerialPortEventListener {
 
         if (portId.getPortType() == CommPortIdentifier.PORT_SERIAL) {
           String name = portId.getName();
-          list.addElement(name);
+          list.add(name);
         }
       }
 
@@ -531,9 +580,7 @@ public class Serial implements SerialPortEventListener {
       errorMessage("ports", e);
     }
     //System.err.println("move out");
-    String outgoing[] = new String[list.size()];
-    list.copyInto(outgoing);
-    return outgoing;
+    return list;
   }
 
 
@@ -542,7 +589,7 @@ public class Serial implements SerialPortEventListener {
    * I think of something slightly more intelligent to do.
    */
   static public void errorMessage(String where, Throwable e) {
-    System.err.println("Error inside Serial." + where + "()");
+    System.err.println(I18n.format(_("Error inside Serial.{0}()"), where));
     e.printStackTrace();
   }
 }

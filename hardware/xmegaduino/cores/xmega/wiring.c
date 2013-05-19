@@ -514,6 +514,11 @@ void init()
         TIMER.CTRLB    = ( TIMER.CTRLB & ~TC1_WGMODE_gm ) | TC_WGMODE_NORMAL_gc;
         TIMER.INTCTRLA = TC_OVFINTLVL_LO_gc; // Use "low priority" interrupts so we don't mess up other people's interrupt timing.
 #endif
+
+#if defined(TCC2) || defined(TCD2)
+        // port C&D pwm uses EVCH7 for a div128 prescaled clock.
+        EVSYS.CH7MUX = EVSYS_CHMUX_PRESCALER_128_gc;
+#endif
         /*************************************/
         /* Init I/O ports */
 	
